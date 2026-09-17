@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
@@ -35,6 +37,10 @@ type dirEntry struct {
 	Path      string `json:"path"`
 	Type      string `json:"type" jsonschema:"file or directory"`
 	SizeBytes int64  `json:"size_bytes,omitempty" jsonschema:"File size; omitted for directories."`
+	// SHA256 is filled only when path named this one file. Hashing every
+	// entry of a listing would read the whole tree to answer a question
+	// about its shape.
+	SHA256 string `json:"sha256,omitempty" jsonschema:"SHA-256 of the file, when path named a single file. This is the expected_sha256 a write wants."`
 }
 
 type listDirectoryOutput struct {
@@ -77,11 +83,27 @@ func (t *toolset) listDirectory(ctx context.Context, _ *mcp.CallToolRequest, in 
 		}
 		return nil, zero, fmt.Errorf("listing %s: %w", canonical, err)
 	}
+	out := listDirectoryOutput{Path: canonical, Entries: []dirEntry{}}
+	// A path that names a file is described rather than refused: this is
+	// where stat_path went. It answers type, size and the SHA-256 a write
+	// needs as expected_sha256, without reading the content.
 	if !info.IsDir() {
-		return nil, zero, fmt.Errorf("%s is not a directory", canonical)
+		if !info.Mode().IsRegular() {
+			return nil, zero, fmt.Errorf("%s is not a regular file or directory", canonical)
+		}
+		entry := dirEntry{Path: canonical, Type: "file", SizeBytes: info.Size()}
+		if info.Size() <= maxFileBytes {
+			data, err := os.ReadFile(abs)
+			if err != nil {
+				return nil, zero, fmt.Errorf("hashing %s: %w", canonical, err)
+			}
+			sum := sha256.Sum256(data)
+			entry.SHA256 = hex.EncodeToString(sum[:])
+		}
+		out.Entries = append(out.Entries, entry)
+		return nil, out, nil
 	}
 
-	out := listDirectoryOutput{Path: canonical, Entries: []dirEntry{}}
 	if err := listInto(ws, abs, canonical, depth, &out); err != nil {
 		return nil, zero, err
 	}
@@ -136,7 +158,10 @@ func listInto(ws *workspace.Workspace, absDir, relDir string, depth int, out *li
 
 type readFilesInput struct {
 	WorkspaceID string   `json:"workspace_id,omitempty" jsonschema:"Opaque workspace identifier from workspace_info."`
-	Paths       []string `json:"paths" jsonschema:"Workspace-relative file paths, at most 20 per call."`
+	Path        string   `json:"path,omitempty" jsonschema:"One workspace-relative file path, e.g. src/main.go. Use this or paths, not both."`
+	Paths       []string `json:"paths,omitempty" jsonschema:"Several workspace-relative file paths, at most 20 per call. Use this or path, not both."`
+	StartLine   int      `json:"start_line,omitempty" jsonschema:"With path: first line to return, 1-based. Omit to read from the beginning."`
+	EndLine     int      `json:"end_line,omitempty" jsonschema:"With path: last line to return, 1-based inclusive. Omit to read to the end."`
 }
 
 type readFilesEntry struct {
@@ -163,10 +188,22 @@ type readFilesOutput struct {
 
 func (t *toolset) readFiles(ctx context.Context, _ *mcp.CallToolRequest, in readFilesInput) (*mcp.CallToolResult, readFilesOutput, error) {
 	var zero readFilesOutput
-	if len(in.Paths) == 0 {
-		return nil, zero, fmt.Errorf("paths must contain at least one path")
-	}
-	if len(in.Paths) > maxBatchFiles {
+	// One path and several are the same read with two different failure
+	// modes, which is why they are one tool but not one branch. Asked for
+	// one file, a refusal — outside the sandbox, sensitive, absent — is the
+	// answer and fails the call. Asked for twenty, one bad path must not
+	// throw away nineteen good reads, so it is reported per file.
+	paths, single := in.Paths, in.Path != ""
+	switch {
+	case single && len(in.Paths) > 0:
+		return nil, zero, fmt.Errorf("give path for one file or paths for several, not both")
+	case single:
+		paths = []string{in.Path}
+	case len(paths) == 0:
+		return nil, zero, fmt.Errorf("give path for one file, or paths for up to %d", maxBatchFiles)
+	case in.StartLine > 0 || in.EndLine > 0:
+		return nil, zero, fmt.Errorf("a line range applies to one file: use path with start_line and end_line")
+	case len(paths) > maxBatchFiles:
 		return nil, zero, fmt.Errorf("at most %d paths per call; split the batch", maxBatchFiles)
 	}
 	ws, err := t.open(ctx, in.WorkspaceID)
@@ -174,9 +211,9 @@ func (t *toolset) readFiles(ctx context.Context, _ *mcp.CallToolRequest, in read
 		return nil, zero, err
 	}
 
-	out := readFilesOutput{Files: make([]readFilesEntry, 0, len(in.Paths))}
+	out := readFilesOutput{Files: make([]readFilesEntry, 0, len(paths))}
 	total := 0
-	for _, p := range in.Paths {
+	for _, p := range paths {
 		if total >= maxBatchBytes {
 			out.Files = append(out.Files, readFilesEntry{
 				Path:        p,
@@ -185,8 +222,11 @@ func (t *toolset) readFiles(ctx context.Context, _ *mcp.CallToolRequest, in read
 			})
 			continue
 		}
-		one, err := t.readOne(ctx, ws, p, 0, 0)
+		one, err := t.readOne(ctx, ws, p, in.StartLine, in.EndLine)
 		if err != nil {
+			if single {
+				return nil, zero, err
+			}
 			out.Files = append(out.Files, readFilesEntry{Path: p, Error: err.Error()})
 			continue
 		}

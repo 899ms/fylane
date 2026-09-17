@@ -63,8 +63,55 @@ func TestMemoryStartsEmptyAndIsAnnouncedByWorkspaceInfoOnceWritten(t *testing.T)
 	}
 
 	_, info, _ = tools.workspaceInfo(ctx, nil, workspaceInfoInput{})
-	if info.Memory == nil || info.Memory.Notes != 1 || len(info.Memory.Goal) != memoryHintBytes || info.Memory.Next != "billing" || !strings.Contains(info.Memory.Hint, "memory_recall") {
+	if info.Memory == nil || info.Memory.Notes != 1 || len(info.Memory.Goal) != memoryHintBytes || info.Memory.Next != "billing" || !strings.Contains(info.Memory.Hint, "action=recall") {
 		t.Fatalf("workspace_info memory = %+v", info.Memory)
+	}
+}
+
+// U-T1 folded five memory tools into one with an action. Each branch must
+// still reach its own handler, and an action nobody named must be refused
+// rather than guessed at — a wrong guess here writes.
+func TestMemoryToolDispatchesByAction(t *testing.T) {
+	session, _ := startSession(t)
+
+	var out memoryOutput
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "note",
+		"title": "auth rewritten", "body": "the refresh loop is gone",
+		"page": map[string]any{"goal": "ship billing", "next": "wire the retry"},
+	}), &out)
+	if out.NoteID == 0 || !out.PageUpdated || out.NoteCount != 1 {
+		t.Fatalf("note = %+v", out)
+	}
+	id := out.NoteID
+
+	out = memoryOutput{}
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "recall"}), &out)
+	if out.Page == nil || out.Page.Goal != "ship billing" || len(out.Notes) != 1 || out.Notes[0].ID != id {
+		t.Fatalf("recall = %+v", out)
+	}
+
+	out = memoryOutput{}
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "search", "query": "refresh"}), &out)
+	if len(out.Matches) != 1 || out.Matches[0].ID != id {
+		t.Fatalf("search = %+v", out)
+	}
+
+	out = memoryOutput{}
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "read", "ids": []int64{id}}), &out)
+	if len(out.FullNotes) != 1 || out.FullNotes[0].Body != "the refresh loop is gone" {
+		t.Fatalf("read = %+v", out)
+	}
+
+	out = memoryOutput{}
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "compact"}), &out)
+	if out.Hint == "" || out.Live != 1 {
+		t.Fatalf("compact = %+v", out)
+	}
+
+	for _, action := range []string{"", "remember", "delete"} {
+		if res := callTool(t, session, "memory", map[string]any{"action": action}); !res.IsError {
+			t.Errorf("action %q must be refused, not guessed at", action)
+		}
 	}
 }
 
@@ -175,7 +222,7 @@ func TestMemoryCompactionFoldsTheOldestNotesIntoASummary(t *testing.T) {
 		}
 	}
 	_, recall, _ := tools.memoryRecall(ctx, nil, memoryRecallInput{})
-	if !strings.Contains(recall.Hint, "memory_compact") {
+	if !strings.Contains(recall.Hint, "action=compact") {
 		t.Fatalf("a long trail does not ask for compaction: %s", recall.Hint)
 	}
 
@@ -223,5 +270,70 @@ func TestMemoryCompactionFoldsTheOldestNotesIntoASummary(t *testing.T) {
 	_, next, _ := tools.memoryCompact(ctx, nil, memoryCompactInput{})
 	if len(next.Notes) == 0 || next.Notes[0].Title != "step 41" {
 		t.Fatalf("the next batch does not continue after the archived ones: %+v", next.Notes)
+	}
+}
+
+// U-T2: the plan is the half of a harness a web chat has none of. The
+// thing being tested is the handoff — a turn cut off mid-step leaves a
+// mark, and one call by the next conversation is enough to find it.
+func TestThePlanSurvivesTheConversationThatWroteIt(t *testing.T) {
+	session, _ := startSession(t)
+
+	var out memoryOutput
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "plan", "steps": []map[string]any{
+		{"title": "read the auth middleware"},
+		{"title": "move the refresh to one call site"},
+		{"title": "add a regression test"},
+	}}), &out)
+	if len(out.Plan) != 3 || out.Plan[0].State != store.StepTodo || out.Plan[0].Position != 1 {
+		t.Fatalf("plan = %+v", out.Plan)
+	}
+	first, second := out.Plan[0].ID, out.Plan[1].ID
+
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "step", "step_id": first, "state": "done"}), &memoryOutput{})
+	out = memoryOutput{}
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "step", "step_id": second, "state": "doing"}), &out)
+	// Both plan actions answer with the whole plan, so nothing else has to
+	// be called to see where the work stands.
+	if len(out.Plan) != 3 || !strings.Contains(out.Hint, "1 of 3 done") || !strings.Contains(out.Hint, "In flight") {
+		t.Fatalf("hint after moving a step = %q", out.Hint)
+	}
+
+	// The turn dies here. A new conversation asks one question and gets the
+	// page, the plan and the note titles together.
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "note",
+		"page": map[string]any{"goal": "fix the refresh loop"}}), &memoryOutput{})
+	out = memoryOutput{}
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "recall"}), &out)
+	if out.Page == nil || out.Page.Goal != "fix the refresh loop" || len(out.Plan) != 3 {
+		t.Fatalf("recall = %+v", out)
+	}
+	if out.Plan[1].State != store.StepDoing || !strings.Contains(out.Hint, out.Plan[1].Title) {
+		t.Fatalf("recall does not point at the step in flight: %+v / %q", out.Plan[1], out.Hint)
+	}
+
+	// workspace_info is what every conversation calls first, so "continue"
+	// must be answerable there without calling memory at all.
+	var info workspaceInfoOutput
+	structured(t, callTool(t, session, "workspace_info", map[string]any{}), &info)
+	if info.Memory == nil || !strings.Contains(info.Memory.Plan, "1 of 3 done") {
+		t.Fatalf("workspace_info plan = %+v", info.Memory)
+	}
+
+	// An id from a plan that has since been rewritten must fail loudly
+	// rather than move a step of a plan nobody is working on.
+	structured(t, callTool(t, session, "memory", map[string]any{"action": "plan",
+		"steps": []map[string]any{{"title": "start over"}}}), &memoryOutput{})
+	if res := callTool(t, session, "memory", map[string]any{"action": "step", "step_id": second, "state": "done"}); !res.IsError {
+		t.Error("moving a step of a replaced plan must fail")
+	}
+	for _, args := range []map[string]any{
+		{"action": "plan", "steps": []map[string]any{}},
+		{"action": "step", "state": "done"},
+		{"action": "step", "step_id": 1, "state": "almost"},
+	} {
+		if res := callTool(t, session, "memory", args); !res.IsError {
+			t.Errorf("memory(%v) must be refused", args)
+		}
 	}
 }

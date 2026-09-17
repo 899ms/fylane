@@ -116,6 +116,13 @@ func newExecFixtureAt(t *testing.T, decision txn.Decision, rung cmdgate.Rung) *e
 	}
 }
 
+// snapshotOut shapes a snapshot without a workspace, which is what the tests
+// about boundary notes and the next-step vocabulary want: no workspace means
+// no failure is looked at, so those tests keep asserting one thing each.
+func (t *toolset) snapshotOut(s tasks.Snapshot) runCommandOutput {
+	return t.fromSnapshot(context.Background(), nil, s)
+}
+
 func (f *execFixture) run(t *testing.T, in runCommandInput) runCommandOutput {
 	t.Helper()
 	_, out, err := f.tools.runCommand(context.Background(), nil, in)

@@ -23,7 +23,32 @@ const (
 	MemoryTitleBytes    = 120
 	MemoryBodyBytes     = 2000
 	MemoryRefBytes      = 64
+
+	// Plan bounds (D39). A plan a conversation can hold in its head is
+	// short; one that needs more than twenty steps needs a smaller goal.
+	MemoryPlanSteps      = 20
+	MemoryStepTitleBytes = 200
+	MemoryStepNoteBytes  = 500
 )
+
+// The states a plan step can be in. A step is in exactly one of them.
+const (
+	StepTodo    = "todo"
+	StepDoing   = "doing"
+	StepBlocked = "blocked"
+	StepDone    = "done"
+)
+
+// ValidStepState says whether s is one of the four states. The set is
+// closed on purpose: a fifth value invented by a caller would be a state
+// nothing here knows how to count or show.
+func ValidStepState(s string) bool {
+	switch s {
+	case StepTodo, StepDoing, StepBlocked, StepDone:
+		return true
+	}
+	return false
+}
 
 // MemoryPage is the one page a workspace's memory keeps current. Every
 // field is replaced whole on each save.
@@ -54,6 +79,35 @@ type MemoryNote struct {
 	RunID       string    `json:"run_id,omitempty"`
 	Archived    bool      `json:"archived,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// MemoryStep is one step of the plan a workspace is working through. The
+// plan is replaced whole; a step is moved one at a time, and its id is the
+// handle that makes the second possible.
+type MemoryStep struct {
+	ID        int64     `json:"id" jsonschema:"The handle to move this step by."`
+	Position  int       `json:"position" jsonschema:"1-based order within the plan."`
+	Title     string    `json:"title" jsonschema:"What this step is. Up to 200 bytes."`
+	State     string    `json:"state" jsonschema:"todo | doing | blocked | done"`
+	Note      string    `json:"note,omitempty" jsonschema:"Why it is blocked, or what it turned out to involve. Up to 500 bytes."`
+	Provider  string    `json:"provider,omitempty" jsonschema:"Who last moved this step."`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (st *MemoryStep) validate() error {
+	if strings.TrimSpace(st.Title) == "" {
+		return fmt.Errorf("%w: a step needs a title", ErrMemoryBounds)
+	}
+	if err := within("step title", st.Title, MemoryStepTitleBytes); err != nil {
+		return err
+	}
+	if err := within("step note", st.Note, MemoryStepNoteBytes); err != nil {
+		return err
+	}
+	if !ValidStepState(st.State) {
+		return fmt.Errorf("%w: state %q is not one of todo, doing, blocked, done", ErrMemoryBounds, st.State)
+	}
+	return nil
 }
 
 // ErrMemoryBounds marks a page or note that is over the limits above, so a
@@ -302,7 +356,7 @@ func (s *Store) DeleteMemory(ctx context.Context, workspaceID string) error {
 		return fmt.Errorf("deleting memory: %w", err)
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"memory_notes", "memory_state"} {
+	for _, table := range []string{"memory_plan_steps", "memory_notes", "memory_state"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE workspace_id = ?`, workspaceID); err != nil {
 			return fmt.Errorf("deleting memory: %w", err)
 		}
@@ -358,4 +412,132 @@ func (s *Store) ArchiveMemoryNotes(ctx context.Context, workspaceID string, thro
 		return 0, fmt.Errorf("archiving memory notes: %w", err)
 	}
 	return int(n), nil
+}
+
+const memoryStepColumns = `id, position, title, state, note, provider, updated_at`
+
+// SaveMemoryPlan replaces the workspace's plan with these steps and
+// returns the plan as stored, ids and all. Replacing is whole: the ids of
+// the old plan are gone, which is what makes a stale update fail loudly
+// rather than move a step of a plan nobody is working on any more.
+func (s *Store) SaveMemoryPlan(ctx context.Context, workspaceID, provider string, steps []MemoryStep, at time.Time) ([]*MemoryStep, error) {
+	if workspaceID == "" {
+		return nil, fmt.Errorf("memory plan: missing workspace id")
+	}
+	if len(steps) > MemoryPlanSteps {
+		return nil, fmt.Errorf("%w: the plan has %d steps; the limit is %d", ErrMemoryBounds, len(steps), MemoryPlanSteps)
+	}
+	for i := range steps {
+		steps[i].Title = strings.TrimSpace(steps[i].Title)
+		if steps[i].State == "" {
+			steps[i].State = StepTodo
+		}
+		if err := steps[i].validate(); err != nil {
+			return nil, err
+		}
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("saving memory plan: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM memory_plan_steps WHERE workspace_id = ?`, workspaceID); err != nil {
+		return nil, fmt.Errorf("saving memory plan: %w", err)
+	}
+	stamp := formatTime(at)
+	for i, st := range steps {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO memory_plan_steps (workspace_id, position, title, state, note, provider, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			workspaceID, i+1, st.Title, st.State, st.Note, provider, stamp, stamp); err != nil {
+			return nil, fmt.Errorf("saving memory plan: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("saving memory plan: %w", err)
+	}
+	return s.ListMemoryPlan(ctx, workspaceID)
+}
+
+// ListMemoryPlan reads the plan in order. An empty plan is no rows, not an
+// error: a workspace without a plan is the normal case.
+func (s *Store) ListMemoryPlan(ctx context.Context, workspaceID string) ([]*MemoryStep, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+memoryStepColumns+`
+		FROM memory_plan_steps WHERE workspace_id = ? ORDER BY position ASC`, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("reading memory plan: %w", err)
+	}
+	defer rows.Close()
+	var out []*MemoryStep
+	for rows.Next() {
+		var (
+			st      MemoryStep
+			updated string
+		)
+		if err := rows.Scan(&st.ID, &st.Position, &st.Title, &st.State, &st.Note, &st.Provider, &updated); err != nil {
+			return nil, fmt.Errorf("scanning plan step: %w", err)
+		}
+		if st.UpdatedAt, err = parseTime(updated); err != nil {
+			return nil, fmt.Errorf("decoding plan step %d timestamp: %w", st.ID, err)
+		}
+		out = append(out, &st)
+	}
+	return out, rows.Err()
+}
+
+// UpdateMemoryStep moves one step. A nil title or note leaves that field as
+// it is; the id is the handle, and it survives only until the plan is
+// rewritten whole. A nil note leaves the note as it is;
+// ErrNotFound when this workspace holds no step by that id, so an update
+// aimed at a plan that has since been replaced is told so rather than
+// silently doing nothing.
+func (s *Store) UpdateMemoryStep(ctx context.Context, workspaceID, provider string, id int64, state string, title, note *string, at time.Time) error {
+	if !ValidStepState(state) {
+		return fmt.Errorf("%w: state %q is not one of todo, doing, blocked, done", ErrMemoryBounds, state)
+	}
+	if title != nil {
+		// The same two rules SaveMemoryPlan applies, because a step with no
+		// title is a row nothing on screen can name.
+		if strings.TrimSpace(*title) == "" {
+			return fmt.Errorf("%w: a step needs a title", ErrMemoryBounds)
+		}
+		if err := within("step title", *title, MemoryStepTitleBytes); err != nil {
+			return err
+		}
+	}
+	if note != nil {
+		if err := within("step note", *note, MemoryStepNoteBytes); err != nil {
+			return err
+		}
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	query := `UPDATE memory_plan_steps SET state = ?, provider = ?, updated_at = ?`
+	args := []any{state, provider, formatTime(at)}
+	if title != nil {
+		query += `, title = ?`
+		args = append(args, *title)
+	}
+	if note != nil {
+		query += `, note = ?`
+		args = append(args, *note)
+	}
+	query += ` WHERE workspace_id = ? AND id = ?`
+	args = append(args, workspaceID, id)
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("updating plan step: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("updating plan step: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

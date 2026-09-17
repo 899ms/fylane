@@ -176,6 +176,8 @@ type Runner struct {
 	// boundary, which is the answer on a platform that offers none — every
 	// other check is unchanged either way.
 	box *readbox.Box
+	// live is what Owns answers from.
+	live *liveGroups
 }
 
 // New builds a Runner. The auditor is required: an execution engine that can
@@ -184,7 +186,7 @@ func New(a Auditor, box *readbox.Box) *Runner {
 	if a == nil {
 		panic("cmdexec: nil auditor")
 	}
-	return &Runner{audit: a, box: box}
+	return &Runner{audit: a, box: box, live: newLiveGroups()}
 }
 
 // Run executes spec and returns what it produced. The returned error covers
@@ -219,7 +221,7 @@ func (r *Runner) Run(ctx context.Context, spec Spec) (*Result, error) {
 		})
 	}
 
-	res, runErr := run(ctx, spec, dirAbs, prog, r.box)
+	res, runErr := run(ctx, spec, dirAbs, prog, r.box, r.live)
 	if runErr != nil {
 		r.audit.ExecAttempt(ctx, Record{
 			WorkspaceID: spec.WorkspaceID,
@@ -428,7 +430,7 @@ func (t teeWriter) Write(p []byte) (int, error) {
 
 // run starts the process and collects its output. Everything that can be
 // refused has been refused by now.
-func run(ctx context.Context, spec Spec, dirAbs, prog string, box *readbox.Box) (*Result, error) {
+func run(ctx context.Context, spec Spec, dirAbs, prog string, box *readbox.Box, live *liveGroups) (*Result, error) {
 	timeout := spec.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -486,6 +488,7 @@ func run(ctx context.Context, spec Spec, dirAbs, prog string, box *readbox.Box) 
 		cmd.Wait()
 		return nil, fmt.Errorf("isolating %s: %w", spec.Argv[0], err)
 	}
+	defer live.add(spec.WorkspaceID, group)()
 	waitErr := cmd.Wait()
 	elapsed := time.Since(started)
 

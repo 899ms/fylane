@@ -12,7 +12,7 @@ import (
 )
 
 // Compaction keeps the trail from growing without end. There is no model
-// on this machine, so the summary is written by the caller: memory_compact
+// on this machine, so the summary is written by the caller: action=compact
 // first hands over the oldest notes, then takes the summary back and
 // archives what it covers. Archived notes are not deleted — they stay
 // readable by id and searchable — and the page is untouched: the summary
@@ -77,7 +77,7 @@ func (t *toolset) memoryCompact(ctx context.Context, _ *mcp.CallToolRequest, in 
 	case len(batch) == 0:
 		return nil, zero, fmt.Errorf("there is nothing to compact")
 	case in.ThroughID > batch[len(batch)-1].ID || in.ThroughID < batch[0].ID:
-		return nil, zero, fmt.Errorf("through_id %d is not what the first call returned (%d); call memory_compact without arguments again", in.ThroughID, batch[len(batch)-1].ID)
+		return nil, zero, fmt.Errorf("through_id %d is not what the first call returned (%d); call action=compact with nothing else again", in.ThroughID, batch[len(batch)-1].ID)
 	}
 	note := &store.MemoryNote{WorkspaceID: ws.ID(), Provider: t.provider,
 		Title: fmt.Sprintf("Summary of notes up to #%d (from %s)", in.ThroughID, summaryDate(batch[0])),
@@ -94,9 +94,9 @@ func (t *toolset) memoryCompact(ctx context.Context, _ *mcp.CallToolRequest, in 
 		return nil, zero, err
 	}
 	out := memoryCompactOutput{Archived: archived, SummaryID: note.ID, Live: live,
-		Hint: "The summary is now a note; the notes it covers are archived and still searchable. Rewrite the page with memory_note if the summary changed what is current."}
+		Hint: "The summary is now a note; the notes it covers are archived and still searchable. Rewrite the page with action=note if the summary changed what is current."}
 	if live > memoryCompactAt {
-		out.Hint += " The trail is still long; call memory_compact again for the next batch."
+		out.Hint += " The trail is still long; call action=compact again for the next batch."
 	}
 	return nil, out, nil
 }
@@ -140,7 +140,7 @@ func (t *toolset) compactOffer(ctx context.Context, workspaceID string, batch []
 		out.Notes = append(out.Notes, *n)
 	}
 	out.ThroughID = batch[len(batch)-1].ID
-	out.Hint = fmt.Sprintf("Summarize these %d notes in up to %d bytes — decisions, outcomes, what a later conversation would otherwise rediscover — then call memory_compact again with summary and through_id=%d.", len(batch), memorySummaryBytes, out.ThroughID)
+	out.Hint = fmt.Sprintf("Summarize these %d notes in up to %d bytes — decisions, outcomes, what a later conversation would otherwise rediscover — then call action=compact again with summary and through_id=%d.", len(batch), memorySummaryBytes, out.ThroughID)
 	return nil, out, nil
 }
 
@@ -149,7 +149,7 @@ func compactDue(live int) string {
 	if live <= memoryCompactAt {
 		return ""
 	}
-	return fmt.Sprintf(" The trail has %d notes; call memory_compact to fold the oldest into a summary.", live)
+	return fmt.Sprintf(" The trail has %d notes; call action=compact to fold the oldest into a summary.", live)
 }
 
 // summaryDate is the day a batch starts, for the summary note's title.

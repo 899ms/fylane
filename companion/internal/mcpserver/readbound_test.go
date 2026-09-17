@@ -22,23 +22,23 @@ func TestAFailedCommandSaysWhetherReadsAreBounded(t *testing.T) {
 	unbounded := &toolset{}
 
 	failed := tasks.Snapshot{ID: "tsk_1", State: tasks.Failed, ExitCode: 1}
-	if got := bounded.fromSnapshot(failed).ReadBoundary; got == "" {
+	if got := bounded.snapshotOut(failed).ReadBoundary; got == "" {
 		t.Fatal("a failed command said nothing about the boundary in force")
 	}
-	if got := unbounded.fromSnapshot(failed).ReadBoundary; got != "" {
+	if got := unbounded.snapshotOut(failed).ReadBoundary; got != "" {
 		t.Fatalf("a Companion with no boundary claimed one: %q", got)
 	}
 
 	// It appears on failure only. Saying it after every successful command
 	// would be noise, and noise is how a line that matters stops being read.
 	ok := tasks.Snapshot{ID: "tsk_1", State: tasks.Succeeded, ExitCode: 0}
-	if got := bounded.fromSnapshot(ok).ReadBoundary; got != "" {
+	if got := bounded.snapshotOut(ok).ReadBoundary; got != "" {
 		t.Fatalf("a successful command carried the boundary note: %q", got)
 	}
 
 	// And it does not claim to have caused this failure, because nothing here
 	// can know that.
-	note := bounded.fromSnapshot(failed).ReadBoundary
+	note := bounded.snapshotOut(failed).ReadBoundary
 	for _, forbidden := range []string{"caused", "because of this", "was blocked"} {
 		if strings.Contains(note, forbidden) {
 			t.Fatalf("the note claims more than it knows: %q", note)
@@ -57,23 +57,23 @@ func TestAFailedCommandSaysWhetherTheNetworkWasBounded(t *testing.T) {
 	}
 
 	for _, reach := range []readbox.Reach{readbox.ReachDenied, readbox.ReachPartial} {
-		if got := tools.fromSnapshot(failed(reach)).NetworkBoundary; got == "" {
+		if got := tools.snapshotOut(failed(reach)).NetworkBoundary; got == "" {
 			t.Errorf("a command that failed under %s said nothing about it", reach)
 		}
 	}
 	for _, reach := range []readbox.Reach{readbox.ReachAllowed, readbox.ReachUnbounded, ""} {
-		if got := tools.fromSnapshot(failed(reach)).NetworkBoundary; got != "" {
+		if got := tools.snapshotOut(failed(reach)).NetworkBoundary; got != "" {
 			t.Errorf("reach %q carried a boundary note: %q", reach, got)
 		}
 	}
 
 	ok := tasks.Snapshot{ID: "tsk_1", State: tasks.Succeeded, ExitCode: 0,
 		Network: string(readbox.ReachDenied)}
-	if got := tools.fromSnapshot(ok).NetworkBoundary; got != "" {
+	if got := tools.snapshotOut(ok).NetworkBoundary; got != "" {
 		t.Errorf("a successful command carried the note: %q", got)
 	}
 
-	note := tools.fromSnapshot(failed(readbox.ReachDenied)).NetworkBoundary
+	note := tools.snapshotOut(failed(readbox.ReachDenied)).NetworkBoundary
 	for _, forbidden := range []string{"caused", "because of this", "was blocked"} {
 		if strings.Contains(note, forbidden) {
 			t.Fatalf("the note claims more than it knows: %q", note)

@@ -11,6 +11,104 @@ import (
 	"github.com/leazoot/fylane/companion/internal/store"
 )
 
+// Changing one step by hand (U-T5 / D40). What the desktop may change is the
+// half that leaves the id where it is; everything that would renumber the
+// plan stays the AI's.
+func TestOneStepOfThePlanCanBeChangedByHand(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	ws, err := f.manager.Current(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := func() []*store.MemoryStep {
+		t.Helper()
+		plan, err := f.st.SaveMemoryPlan(ctx, ws.ID, "chatgpt", []store.MemoryStep{
+			{Title: "read the connection layer", State: store.StepDone},
+			{Title: "delete the poller", State: store.StepDoing},
+			{Title: "add the settings toggle", State: store.StepBlocked, Note: "no design board yet"},
+		}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan
+	}
+	plan := seed()
+	post := func(body map[string]any) (*http.Response, []byte) {
+		t.Helper()
+		body["workspace_id"] = ws.ID
+		return f.call(t, "POST", "/v1/memory/plan/step", f.token, body)
+	}
+	read := func(raw []byte) []*store.MemoryStep {
+		t.Helper()
+		var got []*store.MemoryStep
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("answer was not a plan: %s", raw)
+		}
+		return got
+	}
+
+	// A state change touches the state, credits the person, and leaves the
+	// words alone. The answer is the whole plan, so the screen never has to
+	// ask again for what it just changed.
+	resp, raw := post(map[string]any{"id": plan[2].ID, "state": "done"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("state change = %d %s", resp.StatusCode, raw)
+	}
+	got := read(raw)
+	if len(got) != 3 {
+		t.Fatalf("answer carried %d steps, want the whole plan", len(got))
+	}
+	if got[2].State != store.StepDone || got[2].Title != "add the settings toggle" {
+		t.Fatalf("changed step = %+v", got[2])
+	}
+	if got[2].Note != "no design board yet" {
+		t.Fatalf("a change that never mentioned the note rewrote it: %q", got[2].Note)
+	}
+	if got[2].Provider != "user" {
+		t.Fatalf("provider = %q; a hand change is the user's", got[2].Provider)
+	}
+
+	// A title change must carry the step's current state through. Getting
+	// this wrong is silent: every retitled step would quietly become todo.
+	resp, raw = post(map[string]any{"id": plan[1].ID, "title": "delete internal/poll and run the tests"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("title change = %d %s", resp.StatusCode, raw)
+	}
+	if got = read(raw); got[1].Title != "delete internal/poll and run the tests" || got[1].State != store.StepDoing {
+		t.Fatalf("retitled step = %+v", got[1])
+	}
+
+	// Absent and empty are different answers: an empty note clears it.
+	if _, raw = post(map[string]any{"id": plan[2].ID, "note": ""}); read(raw)[2].Note != "" {
+		t.Fatalf("an empty note did not clear it: %+v", read(raw)[2])
+	}
+
+	// The bounds the tool obeys are the Core's, not the tool's. Each of
+	// these is a "shorten it" answer, never a 500.
+	for name, body := range map[string]map[string]any{
+		"no title":      {"id": plan[0].ID, "title": "   "},
+		"long title":    {"id": plan[0].ID, "title": strings.Repeat("t", store.MemoryStepTitleBytes+1)},
+		"long note":     {"id": plan[0].ID, "note": strings.Repeat("n", store.MemoryStepNoteBytes+1)},
+		"invented":      {"id": plan[0].ID, "state": "almost"},
+		"nothing given": {"id": plan[0].ID},
+	} {
+		if resp, raw = post(body); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s = %d %s, want 400", name, resp.StatusCode, raw)
+		}
+	}
+
+	// Rewriting the plan replaces every row, so the id the screen is holding
+	// stops resolving. That has to be said, not silently matched to nothing:
+	// it is the exact sentence board 23 puts on screen.
+	old := plan[0].ID
+	seed()
+	resp, raw = post(map[string]any{"id": old, "state": "done"})
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(raw), "no such step") {
+		t.Fatalf("a stale id = %d %s, want 404 saying the step is gone", resp.StatusCode, raw)
+	}
+}
+
 func TestMemoryEndpointsReadCorrectExportAndForget(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -22,7 +120,7 @@ func TestMemoryEndpointsReadCorrectExportAndForget(t *testing.T) {
 	// Empty: a document with nothing in it, never a 404.
 	resp, raw := f.call(t, "GET", "/v1/memory", f.token, nil)
 	var doc memoryDoc
-	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &doc) != nil || doc.State != nil || len(doc.Notes) != 0 {
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &doc) != nil || doc.State != nil || len(doc.Notes) != 0 || len(doc.Plan) != 0 {
 		t.Fatalf("fresh memory = %d %s", resp.StatusCode, raw)
 	}
 
@@ -42,12 +140,24 @@ func TestMemoryEndpointsReadCorrectExportAndForget(t *testing.T) {
 	if _, err := f.st.ArchiveMemoryNotes(ctx, ws.ID, ids[1]); err != nil {
 		t.Fatal(err)
 	}
+	// The plan rides in the same answer as the page and the notes: the
+	// screen draws all three together, so asking for them separately would
+	// be a round trip for nothing.
+	if _, err := f.st.SaveMemoryPlan(ctx, ws.ID, "chatgpt", []store.MemoryStep{
+		{Title: "delete the poller", State: store.StepDoing},
+		{Title: "update the changelog"},
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	resp, raw = f.call(t, "GET", "/v1/memory?workspace_id="+ws.ID, f.token, nil)
 	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &doc) != nil {
 		t.Fatalf("memory = %d %s", resp.StatusCode, raw)
 	}
 	if doc.State == nil || doc.State.Page.Goal != "ship idle sync" || doc.State.Provider != "chatgpt" {
 		t.Fatalf("state = %+v", doc.State)
+	}
+	if len(doc.Plan) != 2 || doc.Plan[0].Position != 1 || doc.Plan[0].State != store.StepDoing || doc.Plan[1].State != store.StepTodo {
+		t.Fatalf("plan = %+v", doc.Plan)
 	}
 	if doc.Live != memoryPageSize || doc.Archived != 2 || len(doc.Notes) != memoryPageSize || doc.NextBeforeID != 0 {
 		t.Fatalf("first page: live %d archived %d notes %d next %d", doc.Live, doc.Archived, len(doc.Notes), doc.NextBeforeID)
@@ -106,7 +216,7 @@ func TestMemoryEndpointsReadCorrectExportAndForget(t *testing.T) {
 	if !strings.HasSuffix(out.Filename, ".md") || strings.ContainsAny(out.Filename, "/ ") {
 		t.Fatalf("filename = %q", out.Filename)
 	}
-	for _, want := range []string{"# Memory: ", "### Goal\n\nship idle sync", "- imap idle", "### Open questions", "## Notes\n", "## Archived notes\n", "_", "poller still running"} {
+	for _, want := range []string{"# Memory: ", "### Goal\n\nship idle sync", "- imap idle", "### Open questions", "## Plan\n", "- [»] delete the poller", "- [ ] update the changelog", "## Notes\n", "## Archived notes\n", "_", "poller still running"} {
 		if !strings.Contains(out.Markdown, want) {
 			t.Errorf("export lacks %q:\n%s", want, out.Markdown)
 		}
@@ -122,7 +232,7 @@ func TestMemoryEndpointsReadCorrectExportAndForget(t *testing.T) {
 	}
 	var gone memoryDoc
 	resp, raw = f.call(t, "GET", "/v1/memory?workspace_id="+ws.ID+"&archived=1", f.token, nil)
-	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &gone) != nil || gone.State != nil || gone.Live+gone.Archived != 0 || len(gone.Notes) != 0 {
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &gone) != nil || gone.State != nil || gone.Live+gone.Archived != 0 || len(gone.Notes) != 0 || len(gone.Plan) != 0 {
 		t.Fatalf("after clear = %d %s", resp.StatusCode, raw)
 	}
 }

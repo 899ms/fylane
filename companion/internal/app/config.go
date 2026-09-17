@@ -40,7 +40,7 @@ type Config struct {
 	// Workspace optionally registers this root directory on startup and
 	// selects it as the current workspace.
 	Workspace string
-	// EnableProbes exposes the wait_probe/payload_probe diagnostic tools.
+	// EnableProbes exposes the wait_probe/payload_probe/image_probe diagnostic tools.
 	// Never enabled by default.
 	EnableProbes bool
 	// ApprovalMode selects the approval policy: "safe" (default) or

@@ -59,26 +59,34 @@ func TestStatPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var st statPathOutput
-	structured(t, callTool(t, session, "stat_path", map[string]any{"path": "docs/a.md"}), &st)
+	// U-T1 folded stat_path into list_directory: a path that names a file
+	// is described rather than refused, with the SHA-256 a write needs.
+	var st listDirectoryOutput
+	structured(t, callTool(t, session, "list_directory", map[string]any{"path": "docs/a.md"}), &st)
 	wantSum := sha256.Sum256([]byte(content))
-	if st.Type != "file" || st.SizeBytes != int64(len(content)) || st.SHA256 != hex.EncodeToString(wantSum[:]) {
-		t.Fatalf("stat file = %+v", st)
+	if len(st.Entries) != 1 {
+		t.Fatalf("describing one file = %+v", st)
+	}
+	if e := st.Entries[0]; e.Type != "file" || e.SizeBytes != int64(len(content)) || e.SHA256 != hex.EncodeToString(wantSum[:]) {
+		t.Fatalf("stat file = %+v", e)
 	}
 
-	var dir statPathOutput
-	structured(t, callTool(t, session, "stat_path", map[string]any{"path": "docs"}), &dir)
-	if dir.Type != "directory" || dir.SHA256 != "" {
-		t.Fatalf("stat directory = %+v", dir)
+	// A directory still lists its children, and they carry no hash: hashing
+	// a whole tree to answer a question about its shape is the cost this
+	// branch avoids.
+	var dir listDirectoryOutput
+	structured(t, callTool(t, session, "list_directory", map[string]any{"path": "docs"}), &dir)
+	if len(dir.Entries) != 1 || dir.Entries[0].Type != "file" || dir.Entries[0].SHA256 != "" {
+		t.Fatalf("listing a directory = %+v", dir)
 	}
 
-	res := callTool(t, session, "stat_path", map[string]any{"path": "missing.txt"})
+	res := callTool(t, session, "list_directory", map[string]any{"path": "missing.txt"})
 	if !res.IsError {
-		t.Error("stat of a missing path must return an error result")
+		t.Error("describing a missing path must return an error result")
 	}
-	res = callTool(t, session, "stat_path", map[string]any{"path": "../outside"})
+	res = callTool(t, session, "list_directory", map[string]any{"path": "../outside"})
 	if !res.IsError {
-		t.Error("stat outside the sandbox must return an error result")
+		t.Error("describing a path outside the sandbox must return an error result")
 	}
 }
 
@@ -98,7 +106,7 @@ func TestReadRulesEnforced(t *testing.T) {
 		}
 	}
 
-	for _, tool := range []string{"stat_path", "read_file"} {
+	for _, tool := range []string{"list_directory", "read_file"} {
 		res := callTool(t, session, tool, map[string]any{"path": "node_modules/pkg/index.js"})
 		if !res.IsError {
 			t.Errorf("%s on excluded path must return an error result", tool)

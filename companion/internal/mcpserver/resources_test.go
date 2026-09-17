@@ -43,8 +43,7 @@ func TestTruncatedReadPointsAtResource(t *testing.T) {
 	session, root := startBudgetSession(t, 16)
 	writeTree(t, root, map[string]string{"big.txt": "line one\nline two\nline three\n"})
 
-	var rd readFileOutput
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "big.txt"}), &rd)
+	rd := readEntry(t, session, map[string]any{"path": "big.txt"})
 	if !rd.Truncated {
 		t.Fatalf("read over budget not truncated: %+v", rd)
 	}
@@ -78,8 +77,7 @@ func TestReadResourceFullFile(t *testing.T) {
 	session, root := startSession(t)
 	writeTree(t, root, map[string]string{"a.txt": "hello\n"})
 
-	var rd readFileOutput
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "a.txt"}), &rd)
+	rd := readEntry(t, session, map[string]any{"path": "a.txt"})
 	if rd.Truncated || rd.ResourceURI != "" {
 		t.Fatalf("small read must stay inline: %+v", rd)
 	}

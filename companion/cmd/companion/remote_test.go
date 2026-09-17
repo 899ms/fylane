@@ -164,11 +164,13 @@ func TestARemoteMachineIsReachedThroughTheLocalEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	var read struct {
-		Content string `json:"content"`
+		Files []struct {
+			Content string `json:"content"`
+		} `json:"files"`
 	}
 	structuredInto(t, res, &read)
-	if read.Content != "hello from the vps\n" {
-		t.Fatalf("read through the local endpoint = %q (isError=%v)", read.Content, res.IsError)
+	if len(read.Files) != 1 || read.Files[0].Content != "hello from the vps\n" {
+		t.Fatalf("read through the local endpoint = %+v (isError=%v)", read.Files, res.IsError)
 	}
 
 	// A write asks on the remote machine; the answer comes from the local

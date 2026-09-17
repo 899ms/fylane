@@ -30,8 +30,12 @@ const memorySearchLimit = 60
 const memoryUserProvider = "user"
 
 type memoryDoc struct {
-	State    *store.MemoryState  `json:"state"`
-	Notes    []*store.MemoryNote `json:"notes"`
+	State *store.MemoryState  `json:"state"`
+	Notes []*store.MemoryNote `json:"notes"`
+	// Plan is the whole plan, in order. It is short by construction (20
+	// steps at most), so it is not paged and does not follow the note
+	// filter: the plan is one thing, not a listing.
+	Plan     []*store.MemoryStep `json:"plan"`
 	Live     int                 `json:"live"`
 	Archived int                 `json:"archived"`
 	// NextBeforeID continues the listing; absent when this page is the last.
@@ -76,6 +80,10 @@ func (s *Server) handleMemory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	doc := memoryDoc{Notes: []*store.MemoryNote{}}
 	if doc.State, err = s.Store.GetMemoryState(ctx, ws.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if doc.Plan, err = s.Store.ListMemoryPlan(ctx, ws.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -150,6 +158,80 @@ func (s *Server) handleMemoryPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, state)
+}
+
+type memoryStepRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	ID          int64  `json:"id"`
+	// Absent and empty are different answers: a field left out of the
+	// request is left alone, which is why these are pointers.
+	State *string `json:"state,omitempty"`
+	Title *string `json:"title,omitempty"`
+	Note  *string `json:"note,omitempty"`
+}
+
+// handleMemoryPlanStep changes one step of the plan by the user's hand, and
+// only the parts that leave its id where it is (D40): the state, the title,
+// the note. Adding, deleting and reordering stay the AI's, so the plan keeps
+// one author and the ids a conversation is holding on to stay valid.
+func (s *Server) handleMemoryPlanStep(w http.ResponseWriter, r *http.Request) {
+	var req memoryStepRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID <= 0 {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.State == nil && req.Title == nil && req.Note == nil {
+		http.Error(w, "nothing to change: give state, title or note", http.StatusBadRequest)
+		return
+	}
+	ws, code, err := s.memoryWorkspace(r, req.WorkspaceID)
+	if err != nil {
+		http.Error(w, err.Error(), code)
+		return
+	}
+	ctx := r.Context()
+	// The store writes a state on every move, so a request that does not
+	// mention one has to carry the step's current state through unchanged.
+	// Reading the plan first is also what lets a stale id be answered as
+	// "no such step" instead of as an update that quietly matched nothing.
+	plan, err := s.Store.ListMemoryPlan(ctx, ws.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var current *store.MemoryStep
+	for _, st := range plan {
+		if st.ID == req.ID {
+			current = st
+			break
+		}
+	}
+	if current == nil {
+		http.Error(w, "this plan has no such step", http.StatusNotFound)
+		return
+	}
+	state := current.State
+	if req.State != nil {
+		state = *req.State
+	}
+	if err := s.Store.UpdateMemoryStep(ctx, ws.ID, memoryUserProvider, req.ID, state, req.Title, req.Note, time.Now()); err != nil {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			// The plan was rewritten between the read above and this write.
+			http.Error(w, "this plan has no such step", http.StatusNotFound)
+		case errors.Is(err, store.ErrMemoryBounds):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	plan, err = s.Store.ListMemoryPlan(ctx, ws.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, plan)
 }
 
 type memoryNoteRequest struct {
@@ -247,10 +329,15 @@ func (s *Server) handleMemoryExport(w http.ResponseWriter, r *http.Request) {
 			before = page[len(page)-1].ID
 		}
 	}
+	plan, err := s.Store.ListMemoryPlan(ctx, ws.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	now := time.Now()
 	writeJSON(w, memoryExport{
 		Filename: exportFilename(ws.Name, now),
-		Markdown: memoryMarkdown(ws.Name, state, live, archived, now),
+		Markdown: memoryMarkdown(ws.Name, state, plan, live, archived, now),
 	})
 }
 
@@ -275,7 +362,7 @@ func exportFilename(name string, now time.Time) string {
 // memoryMarkdown lays the memory out the way a person would read it: the
 // state page first, then the trail newest first, archived notes last under
 // their own heading.
-func memoryMarkdown(name string, state *store.MemoryState, live, archived []*store.MemoryNote, now time.Time) string {
+func memoryMarkdown(name string, state *store.MemoryState, plan []*store.MemoryStep, live, archived []*store.MemoryNote, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Memory: %s\n\n", name)
 	fmt.Fprintf(&b, "Exported %s by Fylane.\n", now.Format("2006-01-02 15:04"))
@@ -306,6 +393,25 @@ func memoryMarkdown(name string, state *store.MemoryState, live, archived []*sto
 		}
 		list("Decisions", state.Page.Decisions)
 		list("Open questions", state.Page.Open)
+	}
+	if len(plan) > 0 {
+		b.WriteString("\n## Plan\n\n")
+		for _, st := range plan {
+			mark := " "
+			switch st.State {
+			case store.StepDone:
+				mark = "x"
+			case store.StepDoing:
+				mark = "»"
+			case store.StepBlocked:
+				mark = "!"
+			}
+			fmt.Fprintf(&b, "- [%s] %s", mark, strings.TrimSpace(st.Title))
+			if note := strings.TrimSpace(st.Note); note != "" {
+				fmt.Fprintf(&b, " — %s", note)
+			}
+			b.WriteString("\n")
+		}
 	}
 	notes := func(title string, list []*store.MemoryNote) {
 		if len(list) == 0 {

@@ -47,6 +47,9 @@ type MemoryStore interface {
 	SearchMemoryNotes(ctx context.Context, workspaceID, query string, limit int) ([]*store.MemoryNote, error)
 	CountMemoryNotes(ctx context.Context, workspaceID string) (live, archived int, err error)
 	GetChangeSet(ctx context.Context, id string) (*store.ChangeSet, error)
+	SaveMemoryPlan(ctx context.Context, workspaceID, provider string, steps []store.MemoryStep, at time.Time) ([]*store.MemoryStep, error)
+	ListMemoryPlan(ctx context.Context, workspaceID string) ([]*store.MemoryStep, error)
+	UpdateMemoryStep(ctx context.Context, workspaceID, provider string, id int64, state string, title, note *string, at time.Time) error
 }
 
 type memoryNoteInput struct {
@@ -213,13 +216,14 @@ type noteHead struct {
 }
 
 type memoryRecallOutput struct {
-	Page      *store.MemoryPage `json:"page,omitempty" jsonschema:"The current-state page, as last rewritten."`
-	UpdatedAt time.Time         `json:"page_updated_at,omitzero"`
-	UpdatedBy string            `json:"page_updated_by,omitempty"`
-	Notes     []noteHead        `json:"notes" jsonschema:"The newest notes, titles only, newest first."`
-	NoteCount int               `json:"note_count"`
-	Archived  int               `json:"archived_count,omitempty" jsonschema:"Notes folded into the page by a compaction; still readable by id and searchable."`
-	Hint      string            `json:"hint"`
+	Page      *store.MemoryPage   `json:"page,omitempty" jsonschema:"The current-state page, as last rewritten."`
+	UpdatedAt time.Time           `json:"page_updated_at,omitzero"`
+	UpdatedBy string              `json:"page_updated_by,omitempty"`
+	Plan      []*store.MemoryStep `json:"plan,omitempty" jsonschema:"The plan this workspace is working through, in order. Move a step with action=step."`
+	Notes     []noteHead          `json:"notes" jsonschema:"The newest notes, titles only, newest first."`
+	NoteCount int                 `json:"note_count"`
+	Archived  int                 `json:"archived_count,omitempty" jsonschema:"Notes folded into the page by a compaction; still readable by id and searchable."`
+	Hint      string              `json:"hint"`
 }
 
 func (t *toolset) memoryRecall(ctx context.Context, _ *mcp.CallToolRequest, in memoryRecallInput) (*mcp.CallToolResult, memoryRecallOutput, error) {
@@ -254,11 +258,20 @@ func (t *toolset) memoryRecall(ctx context.Context, _ *mcp.CallToolRequest, in m
 	if out.NoteCount, out.Archived, err = t.memory.CountMemoryNotes(ctx, ws.ID()); err != nil {
 		return nil, zero, err
 	}
+	// The plan rides along with the page and the titles: one call is what a
+	// conversation that was cut off gets to ask before it has to act.
+	if out.Plan, err = t.memory.ListMemoryPlan(ctx, ws.ID()); err != nil {
+		return nil, zero, err
+	}
 	switch {
-	case out.Page == nil && out.NoteCount == 0:
-		out.Hint = "Nothing is remembered about this workspace yet. When something worth keeping happens, write it with memory_note; rewrite the page when the plan changes."
+	case out.Page == nil && out.NoteCount == 0 && len(out.Plan) == 0:
+		out.Hint = "Nothing is remembered about this workspace yet. When something worth keeping happens, write it with action=note; rewrite the page when it changes, and write the steps you are about to work through with action=plan."
 	default:
-		out.Hint = "Full text of a note: memory_read with its id. Older notes: memory_read with before_id. By topic: memory_search. Keep the page current with memory_note." + compactDue(out.NoteCount)
+		out.Hint = "Full text of a note: action=read with its id. Older notes: action=read with before_id. By topic: action=search. Keep the page current with action=note." + compactDue(out.NoteCount)
+	}
+	// The live step goes first: it is the one thing the caller acts on.
+	if h := planHint(out.Plan); h != "" {
+		out.Hint = h + " " + out.Hint
 	}
 	return nil, out, nil
 }
@@ -417,7 +430,11 @@ type memoryHint struct {
 	Goal      string    `json:"goal,omitempty" jsonschema:"From the page, bounded."`
 	Next      string    `json:"next,omitempty" jsonschema:"From the page, bounded."`
 	Notes     int       `json:"notes"`
-	Hint      string    `json:"hint"`
+	// Plan is how far the plan has got and which step is live. It is here
+	// because every conversation calls workspace_info first, so a chat told
+	// only "continue" can answer without a second call.
+	Plan string `json:"plan,omitempty" jsonschema:"How far the plan has got and which step is in flight."`
+	Hint string `json:"hint"`
 }
 
 func (t *toolset) memoryPreview(ctx context.Context, workspaceID string) (*memoryHint, error) {
@@ -432,10 +449,15 @@ func (t *toolset) memoryPreview(ctx context.Context, workspaceID string) (*memor
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	if st == nil && live+archived == 0 {
+	plan, err := t.memory.ListMemoryPlan(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil && live+archived == 0 && len(plan) == 0 {
 		return nil, nil
 	}
-	h := &memoryHint{Notes: live + archived, Hint: "Call memory_recall before starting: it has the page and the recent notes from earlier conversations."}
+	h := &memoryHint{Notes: live + archived, Plan: planHint(plan),
+		Hint: "Call memory with action=recall before starting: it has the page, the plan and the recent notes from earlier conversations."}
 	if st != nil {
 		h.UpdatedAt = st.UpdatedAt
 		h.Goal, _ = bound(st.Page.Goal, memoryHintBytes)

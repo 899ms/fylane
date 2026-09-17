@@ -239,8 +239,7 @@ func TestSensitiveReadConfirmationOverMCP(t *testing.T) {
 	if !svc.Resolve(pend[0].Request.ChangeSetID, true, "") {
 		t.Fatal("Resolve read failed")
 	}
-	var rd readFileOutput
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": ".env"}), &rd)
+	rd := readEntry(t, session, map[string]any{"path": ".env"})
 	if rd.Content != "SECRET=1\n" {
 		t.Fatalf("approved sensitive read = %+v", rd)
 	}

@@ -64,8 +64,7 @@ func TestMCPOverTunnel(t *testing.T) {
 		t.Fatalf("write over tunnel: %+v", wr)
 	}
 
-	var rd readFileOutput
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "tunneled.txt"}), &rd)
+	rd := readEntry(t, session, map[string]any{"path": "tunneled.txt"})
 	if rd.Content != "via relay" || rd.SHA256 != wr.Operations[0].SHA256 {
 		t.Fatalf("read over tunnel: %+v", rd)
 	}

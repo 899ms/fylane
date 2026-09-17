@@ -81,6 +81,10 @@ type toolset struct {
 	// taskCeiling is the user's ceiling on command runtime; nil means the
 	// engine's default.
 	taskCeiling func() time.Duration
+	// snapshots backs page_snapshot; nil leaves it unregistered.
+	snapshots PageSnapshots
+	// probeCodes backs image_probe's check of the last image it issued.
+	probeCodes probeCodes
 }
 
 // inlineBudgets is what one read may return inline, per platform. The
@@ -89,9 +93,16 @@ type toolset struct {
 // through Claude, 256 KB through ChatGPT and 64 KB through Grok — a spread of
 // 128×, which is why one global figure could not be right for all three.
 //
-// These are halved from the measured ceiling and then given room, because the
-// measurement is of the response on the wire and a file arrives there roughly
-// twice its own size once it is JSON-encoded.
+// These are halved from the measured ceiling and then given room, because at
+// the time of the measurement a file arrived on the wire at roughly twice its
+// own size: every result carried its body twice, once as structuredContent
+// and once as the generated content fallback.
+//
+// That duplicate is gone for the three named platforms (see wire.go), so the
+// same numbers now buy about twice the headroom they were set for. The
+// numbers are deliberately left where they are until the platforms are
+// re-measured end to end: raising them is the direction where being wrong
+// costs the whole response rather than one more page turn.
 //
 // The two directions are not symmetric, and that is what sets these numbers.
 // Under budget, an oversized file is truncated with Truncated: true and the
@@ -174,7 +185,7 @@ type workspaceInfoOutput struct {
 	LastActivity *lastActivity `json:"last_activity,omitempty" jsonschema:"Where work in this workspace was left: the newest changes and commands on record, bounded. Read it before asking the user what was done last time."`
 	// Memory says that earlier conversations left something, and the two
 	// lines of it that matter most. Absent when nothing was remembered.
-	Memory *memoryHint `json:"memory,omitempty" jsonschema:"Earlier conversations remembered things about this workspace. Call memory_recall for the page and recent notes."`
+	Memory *memoryHint `json:"memory,omitempty" jsonschema:"Earlier conversations remembered things about this workspace. Call memory with action=recall for the page and recent notes."`
 }
 
 func (t *toolset) workspaceInfo(ctx context.Context, _ *mcp.CallToolRequest, in workspaceInfoInput) (*mcp.CallToolResult, workspaceInfoOutput, error) {
@@ -253,60 +264,6 @@ func (t *toolset) workspaceInfo(ctx context.Context, _ *mcp.CallToolRequest, in 
 	return nil, out, nil
 }
 
-type statPathInput struct {
-	WorkspaceID string `json:"workspace_id,omitempty" jsonschema:"Opaque workspace identifier from workspace_info."`
-	Path        string `json:"path" jsonschema:"Workspace-relative path of a file or directory."`
-}
-
-type statPathOutput struct {
-	Path      string `json:"path"`
-	Type      string `json:"type" jsonschema:"file or directory"`
-	SizeBytes int64  `json:"size_bytes"`
-	SHA256    string `json:"sha256,omitempty" jsonschema:"SHA-256 of the file content; empty for directories."`
-}
-
-func (t *toolset) statPath(ctx context.Context, _ *mcp.CallToolRequest, in statPathInput) (*mcp.CallToolResult, statPathOutput, error) {
-	var zero statPathOutput
-	ws, err := t.open(ctx, in.WorkspaceID)
-	if err != nil {
-		return nil, zero, err
-	}
-	abs, canonical, err := ws.Resolve(in.Path, sandbox.OpRead)
-	if err != nil {
-		return nil, zero, err
-	}
-	if err := t.checkReadable(ctx, ws, canonical); err != nil {
-		return nil, zero, err
-	}
-
-	info, err := os.Stat(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, zero, fmt.Errorf("path not found: %s", canonical)
-		}
-		return nil, zero, fmt.Errorf("checking %s: %w", canonical, err)
-	}
-	out := statPathOutput{Path: canonical, SizeBytes: info.Size()}
-	switch {
-	case info.IsDir():
-		out.Type = "directory"
-		out.SizeBytes = 0
-	case info.Mode().IsRegular():
-		out.Type = "file"
-		if info.Size() <= maxFileBytes {
-			data, err := os.ReadFile(abs)
-			if err != nil {
-				return nil, zero, fmt.Errorf("hashing %s: %w", canonical, err)
-			}
-			sum := sha256.Sum256(data)
-			out.SHA256 = hex.EncodeToString(sum[:])
-		}
-	default:
-		return nil, zero, fmt.Errorf("%s is not a regular file or directory", canonical)
-	}
-	return nil, out, nil
-}
-
 // checkReadable enforces the workspace exclude and sensitive rules for
 // read-class access to an exact path. Excluded paths behave as if
 // they do not exist. Sensitive paths block on a local confirmation
@@ -336,13 +293,9 @@ func (t *toolset) checkReadable(ctx context.Context, ws *workspace.Workspace, ca
 	}
 }
 
-type readFileInput struct {
-	WorkspaceID string `json:"workspace_id,omitempty" jsonschema:"Opaque workspace identifier from workspace_info."`
-	Path        string `json:"path" jsonschema:"Workspace-relative file path, e.g. src/main.go."`
-	StartLine   int    `json:"start_line,omitempty" jsonschema:"First line to return, 1-based. Omit to read from the beginning."`
-	EndLine     int    `json:"end_line,omitempty" jsonschema:"Last line to return, 1-based inclusive. Omit to read to the end."`
-}
-
+// readFileOutput is what one file read answers with. It is no longer a
+// tool output of its own — read_file returns these as entries — but it
+// stays the shape readOne and the fylane:// resource work in.
 type readFileOutput struct {
 	Path       string `json:"path"`
 	Content    string `json:"content"`
@@ -357,19 +310,6 @@ type readFileOutput struct {
 	// ResourceURI addresses the same file as an MCP resource for clients
 	// that support resources/read; set when the content was truncated.
 	ResourceURI string `json:"resource_uri,omitempty"`
-}
-
-func (t *toolset) readFile(ctx context.Context, _ *mcp.CallToolRequest, in readFileInput) (*mcp.CallToolResult, readFileOutput, error) {
-	var zero readFileOutput
-	ws, err := t.open(ctx, in.WorkspaceID)
-	if err != nil {
-		return nil, zero, err
-	}
-	out, err := t.readOne(ctx, ws, in.Path, in.StartLine, in.EndLine)
-	if err != nil {
-		return nil, zero, err
-	}
-	return nil, out, nil
 }
 
 // readOne reads a single workspace file, enforcing sandbox, exclude, and

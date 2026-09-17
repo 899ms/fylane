@@ -11,6 +11,7 @@ import (
 	"github.com/leazoot/fylane/companion/internal/lsp"
 	"github.com/leazoot/fylane/companion/internal/machines"
 	"github.com/leazoot/fylane/companion/internal/mcpgate"
+	"github.com/leazoot/fylane/companion/internal/pagesnap"
 	"github.com/leazoot/fylane/companion/internal/routerule"
 	"github.com/leazoot/fylane/companion/internal/tunnelproc"
 )
@@ -60,6 +61,10 @@ type settings struct {
 	// task. A pointer because "never chosen" and "chosen: no" are different
 	// answers and the default is yes.
 	AllowStopTasks *bool `json:"allow_stop_tasks,omitempty"`
+	// SnapshotGrants are the workspaces whose pages the user let page_snapshot
+	// send to the platform. Stored because the prompt says the folder will not
+	// be asked about again; a restart that asked again would make that untrue.
+	SnapshotGrants []pagesnap.Grant `json:"page_snapshot_grants,omitempty"`
 	// Rules are the route rules in priority order (see rules.go).
 	Rules []routerule.Rule `json:"rules,omitempty"`
 	// MCPProviders are the local MCP servers the gateway may proxy to.
@@ -270,6 +275,27 @@ func LoadCommandRung(dataDir string) (string, error) {
 		return "", err
 	}
 	return s.CommandRung, nil
+}
+
+// SnapshotGrantStore keeps page_snapshot's workspace grants in the settings
+// file, beside the other answers the user gave about this machine.
+type SnapshotGrantStore struct{ DataDir string }
+
+func (s SnapshotGrantStore) Load() ([]pagesnap.Grant, error) {
+	st, err := loadSettings(s.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return st.SnapshotGrants, nil
+}
+
+func (s SnapshotGrantStore) Save(grants []pagesnap.Grant) error {
+	st, err := loadSettings(s.DataDir)
+	if err != nil {
+		return err
+	}
+	st.SnapshotGrants = grants
+	return saveSettings(s.DataDir, st)
 }
 
 // DefaultDataDir resolves the default data directory shared by every

@@ -82,6 +82,27 @@ func (g *procGroup) kill(cmd *osexec.Cmd) error {
 	return cmd.Process.Kill()
 }
 
+var procIsProcessInJob = windows.NewLazySystemDLL("kernel32.dll").NewProc("IsProcessInJob")
+
+// contains reports whether pid runs inside this group's job. Every process
+// the child spawns is placed in the job by Windows itself, so this covers the
+// whole tree without walking parent ids that Windows reuses.
+func (g *procGroup) contains(pid int) bool {
+	if g.job == 0 {
+		return false
+	}
+	proc, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(proc)
+	var in int32
+	if r, _, _ := procIsProcessInJob.Call(uintptr(proc), uintptr(g.job), uintptr(unsafe.Pointer(&in))); r == 0 {
+		return false
+	}
+	return in != 0
+}
+
 func (g *procGroup) close() {
 	if g.job != 0 {
 		windows.CloseHandle(g.job)

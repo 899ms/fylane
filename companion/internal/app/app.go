@@ -29,6 +29,7 @@ import (
 	"github.com/leazoot/fylane/companion/internal/directsrv"
 	"github.com/leazoot/fylane/companion/internal/machines"
 	"github.com/leazoot/fylane/companion/internal/mcpserver"
+	"github.com/leazoot/fylane/companion/internal/pagesnap"
 	"github.com/leazoot/fylane/companion/internal/readbox"
 	"github.com/leazoot/fylane/companion/internal/store"
 	"github.com/leazoot/fylane/companion/internal/tasks"
@@ -252,6 +253,22 @@ func (a *App) Run(ctx context.Context) error {
 		a.log.Warn("command approval is on the open rung: allowed and gated commands run without asking")
 	}
 
+	// Page snapshots need a browser that is already installed and a way to name
+	// the process on a port; without either the tool is not offered at all.
+	var snapshots mcpserver.PageSnapshots
+	if exe := pagesnap.FindBrowser(); exe != "" && pagesnap.Supported() {
+		grants, err := pagesnap.LoadGrants(SnapshotGrantStore{DataDir: a.cfg.DataDir})
+		if err != nil {
+			return err
+		}
+		snapshots = &pagesnap.Service{
+			Snapshotter: &pagesnap.Snapshotter{Browser: exe, Owns: runner.Owns},
+			Grants:      grants,
+			Strict:      func() bool { return gate.Rung() == cmdgate.Strict },
+		}
+		a.log.Info("page snapshots available")
+	}
+
 	// Other machines reached over ssh. Started here because the MCP handler
 	// below lists their workspaces and the router in front of it forwards
 	// calls to them.
@@ -283,6 +300,7 @@ func (a *App) Run(ctx context.Context) error {
 		Delegations: delegations,
 		Providers:   providers,
 		Navigators:  navigators,
+		Snapshots:   snapshots,
 		Box:         box,
 		Seen:        seenRecorder(ctx, st, a.log),
 		Remotes:     remoteWorkspaces(remotes),

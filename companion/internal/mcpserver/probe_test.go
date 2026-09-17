@@ -70,6 +70,7 @@ func TestProbesHiddenByDefault(t *testing.T) {
 	for name, args := range map[string]map[string]any{
 		"wait_probe":    {"seconds": 1},
 		"payload_probe": {"mib": 0.01},
+		"image_probe":   {},
 	} {
 		res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 			Name: name, Arguments: args,

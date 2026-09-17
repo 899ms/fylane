@@ -70,6 +70,13 @@ type runCommandOutput struct {
 	// error" — which names nothing a caller could act on.
 	NetworkBoundary string `json:"network_boundary,omitempty" jsonschema:"Present on a failed command when this workspace denies outbound network access, in case the failure was a refused connection."`
 
+	// Failure is what a non-zero exit was about: the lines of output that
+	// carry the error, and the places in this workspace they named with the
+	// code around them. It is here so that running something and looking at
+	// why it broke are one call — the round trip a model would otherwise
+	// spend on read_file costs message quota and turn time on a web chat.
+	Failure *commandFailure `json:"failure,omitempty" jsonschema:"Present when a command failed: the failing lines, and the code at the places they named. Those excerpts are already here — do not read those files again."`
+
 	Rule   string `json:"rule,omitempty" jsonschema:"Identifier of the safety rule that refused or gated this command."`
 	Reason string `json:"reason,omitempty"`
 	Action string `json:"action,omitempty" jsonschema:"What to do next when the command did not simply run."`
@@ -192,12 +199,13 @@ func (t *toolset) runCommand(ctx context.Context, _ *mcp.CallToolRequest, in run
 	// them as an error rather than having to poll to learn its command was
 	// never going to run.
 	snap, err := t.tasks.Run(ctx, tasks.Meta{
-		ID:       runID,
-		Key:      commandKey(t.provider, ws.ID(), in.Dir, in.Command),
-		Label:    strings.Join(in.Command, " "),
-		Dir:      in.Dir,
-		Provider: t.provider,
-		Network:  reach,
+		ID:          runID,
+		Key:         commandKey(t.provider, ws.ID(), in.Dir, in.Command),
+		Label:       strings.Join(in.Command, " "),
+		Dir:         in.Dir,
+		Provider:    t.provider,
+		Network:     reach,
+		WorkspaceID: ws.ID(),
 	}, func(runCtx context.Context, stdout, stderr io.Writer) (tasks.Outcome, error) {
 		s := spec
 		s.Stdout, s.Stderr = stdout, stderr
@@ -210,7 +218,7 @@ func (t *toolset) runCommand(ctx context.Context, _ *mcp.CallToolRequest, in run
 	if err != nil {
 		return nil, zero, err
 	}
-	return nil, t.fromSnapshot(snap), nil
+	return nil, t.fromSnapshot(ctx, ws, snap), nil
 }
 
 // confirmCommand asks the local approver. It returns ok=true when the command
@@ -311,7 +319,17 @@ func (t *toolset) taskStatus(ctx context.Context, _ *mcp.CallToolRequest, in tas
 		}
 		return nil, zero, err
 	}
-	return nil, t.fromSnapshot(snap), nil
+	// The workspace the task ran in, so a failure found through task_status
+	// is looked at the same way run_command looks at one. A task whose
+	// workspace has since gone answers without the failure block rather
+	// than not at all.
+	var ws *workspace.Workspace
+	if snap.WorkspaceID != "" {
+		if got, err := t.src.Open(ctx, snap.WorkspaceID); err == nil {
+			ws = got
+		}
+	}
+	return nil, t.fromSnapshot(ctx, ws, snap), nil
 }
 
 // recallRun answers from the journal for a task the manager has forgotten.
@@ -343,7 +361,10 @@ func (t *toolset) recallRun(ctx context.Context, id string) (runCommandOutput, b
 	return out, true
 }
 
-func (t *toolset) fromSnapshot(s tasks.Snapshot) runCommandOutput {
+// fromSnapshot shapes a task snapshot into the answer a caller receives. ws
+// is the workspace the work ran in, used to look at a failure; a nil ws —
+// a task whose workspace is gone — answers everything else as before.
+func (t *toolset) fromSnapshot(ctx context.Context, ws *workspace.Workspace, s tasks.Snapshot) runCommandOutput {
 	out := runCommandOutput{
 		Status: "completed",
 		TaskID: s.ID,
@@ -376,6 +397,12 @@ func (t *toolset) fromSnapshot(s tasks.Snapshot) runCommandOutput {
 		// the same sentence.
 		if code != 0 && (s.Network == string(readbox.ReachDenied) || s.Network == string(readbox.ReachPartial)) {
 			out.NetworkBoundary = networkBoundaryNote
+		}
+		// Looking at the failure happens once, on the terminal answer: a
+		// command still running has only half its output, and half a stack
+		// points at the wrong line as often as the right one.
+		if ws != nil && code != 0 {
+			out.Failure = t.observeFailure(ctx, ws, out.Stdout, out.Stderr)
 		}
 	} else {
 		out.Status = "running"
@@ -517,7 +544,7 @@ func (t *toolset) codeTask(ctx context.Context, _ *mcp.CallToolRequest, in codeT
 	if err != nil {
 		return nil, zero, err
 	}
-	result := t.fromSnapshot(snap)
+	result := t.fromSnapshot(ctx, ws, snap)
 	if result.Status == "running" {
 		result.Action = "the agent is working; call task_status with this task_id and the returned cursors to follow it"
 	}

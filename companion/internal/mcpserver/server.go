@@ -133,6 +133,9 @@ type Deps struct {
 	// unregistered: the gateway is opt-in by configuration, and a Companion
 	// nobody configured a provider on must not advertise one.
 	Providers ProviderRegistry
+	// Snapshots backs page_snapshot. Nil — no browser installed, or a platform
+	// that cannot name the process on a port — leaves the tool unregistered.
+	Snapshots PageSnapshots
 	// Rules reads the user's route rules. Only their "ask" action applies
 	// here — see toolset.execute for why an MCP write is never relocated.
 	Rules RuleSource
@@ -181,7 +184,8 @@ type Options struct {
 	// EnableWaitProbe registers the Phase 0 diagnostic tools: wait_probe
 	// (how long a platform lets a tool call block) and
 	// payload_probe (how large a tool result a platform accepts, task
-	// measurement). Never enabled by default.
+	// measurement), plus image_probe (whether the model sees an image a tool
+	// returns, D38). Never enabled by default.
 	EnableWaitProbe bool
 	// MaxInlineBytes caps content returned inline by one read; zero keeps
 	// the 1 MiB default. To be calibrated per platform once the
@@ -212,10 +216,16 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 		rules: deps.Rules, provider: provider, remotes: deps.Remotes,
 		exec: deps.Exec, tasks: deps.Tasks, approver: deps.Approve, gate: deps.Gate,
 		execAudit: deps.ExecAudit, runs: deps.Runs, activityLog: deps.Activity, memory: deps.Memory, agents: deps.Agents, delegations: deps.Delegations,
-		providers: deps.Providers, navigators: deps.Navigators, box: deps.Box}
+		providers: deps.Providers, navigators: deps.Navigators, box: deps.Box, snapshots: deps.Snapshots}
 	if opts != nil {
 		tools.inlineBudget = opts.MaxInlineBytes
 		tools.taskCeiling = opts.TaskCeiling
+	}
+
+	// Every tool result leaves here carrying its body twice. Drop the copy
+	// this platform does not read; a caller we do not recognise keeps both.
+	if trim, ok := wireTrims[provider]; ok {
+		srv.AddReceivingMiddleware(trimDuplicateBody(trim))
 	}
 
 	srv.AddResourceTemplate(&mcp.ResourceTemplate{
@@ -236,44 +246,21 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 	}, tools.workspaceInfo)
 
 	if deps.Memory != nil {
+		_, compacts := deps.Memory.(MemoryCompactor)
 		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "memory_recall",
-			Description: "What earlier conversations left for this workspace: the current-state page (goal, progress, next, decisions, open questions) and the newest note titles. Call it at the start of work on a workspace that has memory; workspace_info says whether it does. Bounded; read a note in full with memory_read.",
-			Annotations: readOnly,
-		}, tools.memoryRecall)
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "memory_note",
-			Description: "Remember something for the next conversation: a note (title, body; optionally the change_set_id or run_id it is about) and/or a rewrite of the current-state page. Write a note when a task is finished, a decision is taken, or something was learned the hard way; rewrite the page when the plan changes. Fields have byte limits and are cut to them; the answer names what was cut. Nothing is written into the project's files.",
+			Name:        "memory",
+			Description: memoryDescription(compacts),
+			// The branches disagree: recall, search and read only look,
+			// note and compact write. The tool is annotated for the ones
+			// that write, because an annotation a caller trusts must not
+			// promise less than the tool can do.
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptr(false), OpenWorldHint: ptr(false)},
-		}, tools.memoryNote)
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "memory_search",
-			Description: "Find notes by words in their title or body. Returns ids, titles and a bounded snippet; read the full note with memory_read.",
-			Annotations: readOnly,
-		}, tools.memorySearch)
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "memory_read",
-			Description: "Read notes in full: by ids, or page through the trail newest first with before_id. Answers stop at the inline budget and say where to continue.",
-			Annotations: readOnly,
-		}, tools.memoryRead)
-		if _, ok := deps.Memory.(MemoryCompactor); ok {
-			mcp.AddTool(srv, &mcp.Tool{
-				Name:        "memory_compact",
-				Description: "Fold the oldest notes into one summary when memory_recall says the trail is long. Call with no arguments to receive the oldest notes and a through_id; write a summary (up to 1500 bytes) and call again with summary and through_id. The covered notes are archived, not deleted: still searchable and readable by id.",
-				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptr(false), OpenWorldHint: ptr(false)},
-			}, tools.memoryCompact)
-		}
+		}, tools.memoryTool)
 	}
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "stat_path",
-		Description: "Get type, size, and SHA-256 of a file or directory inside the workspace.",
-		Annotations: readOnly,
-	}, tools.statPath)
-
-	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_directory",
-		Description: "List files and directories under a workspace path. Depth 1 lists immediate children; larger depths descend recursively. Excluded and sensitive paths are hidden.",
+		Description: "List what is under a workspace path, or describe one file. Depth 1 lists immediate children; larger depths descend recursively. Point path at a file instead and the answer is that single entry with its size and SHA-256 — the hash write_file, edit_file and apply_patch want as expected_sha256, without reading the content. Excluded and sensitive paths are hidden. Examples: {} lists the workspace root · {\"path\":\"src\",\"depth\":2} · {\"path\":\"src/main.go\"} describes one file.",
 		Annotations: readOnly,
 	}, tools.listDirectory)
 
@@ -284,16 +271,10 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 	}, tools.searchFiles)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_files",
-		Description: "Read up to 20 UTF-8/UTF-16/GBK text files in one call. Each file returns content, SHA-256, and encoding; per-file errors do not fail the batch.",
+		Name:        "read_file",
+		Description: "Read workspace text files (UTF-8, UTF-16, GBK). Give path for one file, optionally narrowed to a 1-based line range, or paths for up to 20 files in one call. Every file comes back in files[] with its content, the SHA-256 of the whole file, its encoding and a truncation flag; a file that cannot be read carries an error there and does not fail the others. Binary files return metadata with empty content. Examples: {\"path\":\"src/main.go\"} · {\"path\":\"src/main.go\",\"start_line\":120,\"end_line\":180} · {\"paths\":[\"go.mod\",\"README.md\"]}.",
 		Annotations: readOnly,
 	}, tools.readFiles)
-
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_file",
-		Description: "Read a UTF-8 text file from the workspace, optionally restricted to a 1-based line range. Returns content, SHA-256 of the full file, and a truncation flag.",
-		Annotations: readOnly,
-	}, tools.readFile)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "write_file",
@@ -309,13 +290,13 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "edit_file",
-		Description: "Apply precise text edits to a single file without sending a full diff: replace_exact, insert_before, insert_after, delete_exact (unique match required), replace_range (1-based lines). Requires expected_sha256 of the current file. Writes require local user approval.",
+		Description: "Apply precise text edits to a single file without sending a full diff: replace_exact, insert_before, insert_after, delete_exact (unique match required), replace_range (1-based lines). Requires expected_sha256 of the current file. Writes require local user approval. Examples: {\"path\":\"src/app.ts\",\"expected_sha256\":\"…\",\"edits\":[{\"type\":\"replace_exact\",\"match\":\"const port = 3000\",\"content\":\"const port = 8080\"}]} · {\"path\":\"src/app.ts\",\"expected_sha256\":\"…\",\"edits\":[{\"type\":\"insert_after\",\"match\":\"import fs from 'fs'\",\"content\":\"\\nimport path from 'path'\"},{\"type\":\"replace_range\",\"start_line\":40,\"end_line\":42,\"content\":\"  return cached\\n\"}]}.",
 		Annotations: write,
 	}, tools.editFile)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "change_manage",
-		Description: "Manage changes with one tool, selected by action. action=apply_change_set applies multiple operations (create/update/move/delete) atomically as one approved change set (summary, operations) — preferred for multi-file edits. action=move moves or renames a file (from, to, expected_sha256). action=delete removes a file or directory into the local recycle area (path; recursive=true plus extra confirmation for non-empty directories). action=rollback reverts an applied change set within its rollback window (change_set_id); it fails with a diff if affected files changed since — never overwrites silently. All actions require local user approval; a pending_approval result means retry with the returned change_set_id.",
+		Description: "Manage changes with one tool, selected by action. action=apply_change_set applies multiple operations (create/update/move/delete) atomically as one approved change set (summary, operations) — preferred for multi-file edits. action=move moves or renames a file (from, to, expected_sha256). action=delete removes a file or directory into the local recycle area (path; recursive=true plus extra confirmation for non-empty directories). action=rollback reverts an applied change set within its rollback window (change_set_id); it fails with a diff if affected files changed since — never overwrites silently. All actions require local user approval; a pending_approval result means retry with the returned change_set_id. Examples: {\"action\":\"move\",\"from\":\"src/old.ts\",\"to\":\"src/new.ts\",\"expected_sha256\":\"…\"} · {\"action\":\"delete\",\"path\":\"tmp/scratch\",\"recursive\":true} · {\"action\":\"apply_change_set\",\"summary\":\"rename the port constant\",\"operations\":[{\"type\":\"update\",\"path\":\"src/app.ts\",\"content\":\"…\",\"expected_sha256\":\"…\"}]} · {\"action\":\"rollback\",\"change_set_id\":\"cs_12\"}.",
 		Annotations: write,
 	}, tools.changeManage)
 
@@ -337,9 +318,17 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "git_query",
-			Description: "Ask git a read-only question about the workspace without approval: op=status (porcelain, with branch), diff (working tree, or staged=true for the index; ref to compare against), log (limit, ref, path), show (ref, default HEAD), blame (path, optional line range). Prefer this over run_command for anything that only reads git; it works in read-only workspaces too. Files the workspace hides are left out and counted in hidden_entries.",
+			Description: "Ask git a read-only question about the workspace without approval: op=status (porcelain, with branch), diff (working tree, or staged=true for the index; ref to compare against), log (limit, ref, path), show (ref, default HEAD), blame (path, optional line range). Prefer this over run_command for anything that only reads git; it works in read-only workspaces too. Files the workspace hides are left out and counted in hidden_entries. Examples: {\"op\":\"status\"} · {\"op\":\"diff\"} · {\"op\":\"diff\",\"staged\":true} · {\"op\":\"log\",\"limit\":10,\"path\":\"src\"} · {\"op\":\"show\",\"ref\":\"HEAD~1\"} · {\"op\":\"blame\",\"path\":\"src/app.ts\",\"start_line\":40,\"end_line\":60}.",
 			Annotations: readOnly,
 		}, tools.gitQuery)
+
+		if deps.Snapshots != nil {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name:        "page_snapshot",
+				Description: "See a page this workspace's dev server is serving: opens http://localhost:<port><path> in a headless browser on this machine and returns a JPEG of it, with the HTTP status, title, page errors, and any requests the page was not allowed to make. Use it after changing UI code to check the result instead of guessing. The server must have been started with run_command in this workspace — give it a timeout long enough to keep running and read its port from task_status; a port held by any other process is refused. The first snapshot in a workspace asks the local user.",
+				Annotations: readOnly,
+			}, tools.pageSnapshot)
+		}
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "task_status",
@@ -355,7 +344,7 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 	if deps.Navigators != nil && len(deps.Navigators.Registry().Names()) > 0 && deps.Approve != nil {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "code_navigate",
-			Description: "Ask a language server installed on this machine about code in the workspace: action=definition finds where a symbol is defined, action=references finds every place it is used, action=symbols lists what one file contains. Answers are exact rather than textual — a reference is a reference, not a string that looks like one. Give path plus symbol, adding line when the same name occurs more than once in the file. It does not fall back to text search: if no server handles the file, or the symbol is not there, it says so. Starting a server in a folder asks the local user once. Installed servers: " + strings.Join(deps.Navigators.Registry().Names(), ", ") + ".",
+			Description: "Ask a language server installed on this machine about code in the workspace: action=definition finds where a symbol is defined, action=references finds every place it is used, action=symbols lists what one file contains. Answers are exact rather than textual — a reference is a reference, not a string that looks like one. Give path plus symbol, adding line when the same name occurs more than once in the file. It does not fall back to text search: if no server handles the file, or the symbol is not there, it says so. Starting a server in a folder asks the local user once. Examples: {\"action\":\"definition\",\"path\":\"src/app.ts\",\"symbol\":\"startServer\"} · {\"action\":\"references\",\"path\":\"src/app.ts\",\"symbol\":\"port\",\"line\":42} · {\"action\":\"symbols\",\"path\":\"src/app.ts\"}. Installed servers: " + strings.Join(deps.Navigators.Registry().Names(), ", ") + ".",
 			Annotations: readOnly,
 		}, tools.codeNavigate)
 	}
@@ -368,7 +357,7 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 		deps.Approve != nil && deps.Gate != nil && deps.ExecAudit != nil {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "mcp_gateway",
-			Description: "Reach an MCP server installed on the user's machine. action=list_providers names the configured servers, action=list_tools returns one server's tools with their input schemas, action=call_tool forwards a call to one of them. Fylane cannot inspect what a proxied tool does, so by default every call stops for local user approval regardless of the user's approval settings; a pending_approval result means retry with the same provider and tool.",
+			Description: "Reach an MCP server installed on the user's machine. action=list_providers names the configured servers, action=list_tools returns one server's tools with their input schemas, action=call_tool forwards a call to one of them. Fylane cannot inspect what a proxied tool does, so by default every call stops for local user approval regardless of the user's approval settings; a pending_approval result means retry with the same provider and tool. Examples: {\"action\":\"list_providers\"} · {\"action\":\"list_tools\",\"provider\":\"sqlite\"} · {\"action\":\"call_tool\",\"provider\":\"sqlite\",\"tool\":\"query\",\"arguments\":{\"sql\":\"select 1\"}}.",
 			Annotations: write,
 		}, tools.mcpGateway)
 	}
@@ -384,6 +373,11 @@ func newWithProvider(deps Deps, opts *Options, provider string) *mcp.Server {
 			Description: "Diagnostic: return a text payload of the given size in MiB. Used to measure the largest tool result the platform accepts.",
 			Annotations: readOnly,
 		}, tools.payloadProbe)
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "image_probe",
+			Description: "Diagnostic: return an image showing six digits, or check the digits read from the last image. Used to measure whether the platform lets the model see an image returned by a tool. The digits appear only in the image: read them and call again with answer set to them.",
+			Annotations: readOnly,
+		}, tools.imageProbe)
 	}
 
 	return srv

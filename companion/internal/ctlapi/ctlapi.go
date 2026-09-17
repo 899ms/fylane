@@ -500,6 +500,7 @@ func (s *Server) Start(ctx context.Context, dataDir string) (string, error) {
 	mux.HandleFunc("POST /v1/save", s.handleSave)
 	mux.HandleFunc("GET /v1/memory", s.handleMemory)
 	mux.HandleFunc("POST /v1/memory/page", s.handleMemoryPage)
+	mux.HandleFunc("POST /v1/memory/plan/step", s.handleMemoryPlanStep)
 	mux.HandleFunc("POST /v1/memory/notes/delete", s.handleMemoryNoteDelete)
 	mux.HandleFunc("POST /v1/memory/clear", s.handleMemoryClear)
 	mux.HandleFunc("GET /v1/memory/export", s.handleMemoryExport)

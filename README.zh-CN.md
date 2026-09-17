@@ -300,10 +300,10 @@ go build -o bin/fylane-companion ./companion/cmd/companion
 
 | | 工具 |
 | --- | --- |
-| 读 | `list_directory` `read_file` `read_files` `search_files` `stat_path` `git_query` |
+| 读 | `list_directory` `read_file` `search_files` `git_query` |
 | 写 | `write_file` `edit_file` `apply_patch` `change_manage` |
 | 跑 | `run_command` `task_status` `code_task` |
-| 记 | `memory_recall` `memory_note` `memory_search` `memory_read` `memory_compact` |
+| 记 | `memory`,分 `recall` `note` `plan` `step` `search` `read` `compact` |
 | 导航 | `code_navigate`,查定义和引用 |
 | 扩展 | `mcp_gateway`,转发到你电脑上的其他 MCP 服务 |
 

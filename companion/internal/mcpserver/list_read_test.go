@@ -80,8 +80,13 @@ func TestListDirectory(t *testing.T) {
 	if res := callTool(t, session, "list_directory", map[string]any{"path": "../"}); !res.IsError {
 		t.Error("listing outside the sandbox must fail")
 	}
-	if res := callTool(t, session, "list_directory", map[string]any{"path": "readme.md"}); !res.IsError {
-		t.Error("listing a file must fail")
+	// A path that names a file is described rather than refused — U-T1
+	// folded stat_path in here. The hash it carries is asserted in
+	// workspace_tools_test.go.
+	var one listDirectoryOutput
+	structured(t, callTool(t, session, "list_directory", map[string]any{"path": "readme.md"}), &one)
+	if len(one.Entries) != 1 || one.Entries[0].Type != "file" {
+		t.Errorf("describing a file = %+v", one)
 	}
 	if res := callTool(t, session, "list_directory", map[string]any{"depth": 99}); !res.IsError {
 		t.Error("excessive depth must fail")
@@ -109,7 +114,7 @@ func TestReadFiles(t *testing.T) {
 	})
 
 	var out readFilesOutput
-	structured(t, callTool(t, session, "read_files", map[string]any{
+	structured(t, callTool(t, session, "read_file", map[string]any{
 		"paths": []string{"a.txt", "b.txt", "missing.txt", ".env"},
 	}), &out)
 	if len(out.Files) != 4 {
@@ -128,15 +133,52 @@ func TestReadFiles(t *testing.T) {
 		t.Errorf(".env entry = %+v, want sensitive denial", out.Files[3])
 	}
 
-	if res := callTool(t, session, "read_files", map[string]any{"paths": []string{}}); !res.IsError {
+	if res := callTool(t, session, "read_file", map[string]any{"paths": []string{}}); !res.IsError {
 		t.Error("empty batch must fail")
 	}
 	many := make([]string, maxBatchFiles+1)
 	for i := range many {
 		many[i] = "a.txt"
 	}
-	if res := callTool(t, session, "read_files", map[string]any{"paths": many}); !res.IsError {
+	if res := callTool(t, session, "read_file", map[string]any{"paths": many}); !res.IsError {
 		t.Error("oversized batch must fail")
+	}
+}
+
+// U-T1 merged read_files into read_file. One path and many are the same
+// read with two different failure modes, and the difference is the point:
+// asked for one file, a refusal is the answer and fails the call; asked for
+// several, one bad path must not throw away the good reads (covered above).
+func TestReadFileTakesOnePathOrMany(t *testing.T) {
+	session, root := startSession(t)
+	writeTree(t, root, map[string]string{"a.txt": "alpha\n", "b.txt": "beta\n"})
+
+	if one := readEntry(t, session, map[string]any{"path": "a.txt"}); one.Content != "alpha\n" || one.Error != "" {
+		t.Fatalf("single read = %+v", one)
+	}
+	var many readFilesOutput
+	structured(t, callTool(t, session, "read_file", map[string]any{"paths": []string{"a.txt", "b.txt"}}), &many)
+	if len(many.Files) != 2 || many.Files[1].Content != "beta\n" {
+		t.Fatalf("batch read = %+v", many.Files)
+	}
+
+	// A sandbox refusal on a single path must stay an error result rather
+	// than becoming a field the model can read past.
+	for _, p := range []string{"missing.txt", "../outside", ".env"} {
+		if res := callTool(t, session, "read_file", map[string]any{"path": p}); !res.IsError {
+			t.Errorf("read_file(path=%q) must fail the call", p)
+		}
+	}
+
+	// Ambiguous or impossible inputs are refused, not guessed at.
+	for _, args := range []map[string]any{
+		{"path": "a.txt", "paths": []string{"b.txt"}},
+		{"paths": []string{"a.txt"}, "start_line": 2},
+		{},
+	} {
+		if res := callTool(t, session, "read_file", args); !res.IsError {
+			t.Errorf("read_file(%v) must be refused", args)
+		}
 	}
 }
 
@@ -164,28 +206,23 @@ func TestReadFileEncodings(t *testing.T) {
 		}
 	}
 
-	var rd readFileOutput
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "u16.txt"}), &rd)
+	rd := readEntry(t, session, map[string]any{"path": "u16.txt"})
 	if rd.Encoding != "utf-16le" || rd.Content != utf16Content {
 		t.Errorf("utf-16 read = %+v", rd)
 	}
 
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "gbk.txt"}), &rd)
+	rd = readEntry(t, session, map[string]any{"path": "gbk.txt"})
 	if rd.Encoding != "gbk" || rd.Content != gbkContent {
 		t.Errorf("gbk read = %+v", rd)
 	}
 
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "utf8.txt"}), &rd)
+	rd = readEntry(t, session, map[string]any{"path": "utf8.txt"})
 	if rd.Encoding != "utf-8" || rd.Content != "plain\n" {
 		t.Errorf("utf-8 read = %+v", rd)
 	}
 
 	// Binary: metadata only, never raw content, and not an error.
-	res := callTool(t, session, "read_file", map[string]any{"path": "bin.dat"})
-	if res.IsError {
-		t.Fatalf("binary read must return metadata, got error: %v", res.Content)
-	}
-	structured(t, res, &rd)
+	rd = readEntry(t, session, map[string]any{"path": "bin.dat"})
 	if rd.Encoding != "binary" || rd.Content != "" || rd.SHA256 == "" || rd.SizeBytes != 8 {
 		t.Errorf("binary read = %+v", rd)
 	}

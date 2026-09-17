@@ -131,7 +131,7 @@ func TestTaskStatesMapToTheDocumentedStep(t *testing.T) {
 // "fix input" because a test suite failed would be the tool inventing a
 // diagnosis it does not have.
 func TestANonZeroExitIsAResultNotAnInstruction(t *testing.T) {
-	out := (&toolset{}).fromSnapshot(tasks.Snapshot{ID: "tsk_1", State: tasks.Failed, ExitCode: 1,
+	out := (&toolset{}).snapshotOut(tasks.Snapshot{ID: "tsk_1", State: tasks.Failed, ExitCode: 1,
 		Stderr: "2 tests failed", Duration: time.Second})
 	if out.Next != "" {
 		t.Errorf("next = %q, want no instruction", out.Next)
@@ -142,7 +142,7 @@ func TestANonZeroExitIsAResultNotAnInstruction(t *testing.T) {
 // and neither side knows what that was.
 func TestAKilledCommandTellsTheCallerTheEffectIsUnknown(t *testing.T) {
 	for _, state := range []tasks.State{tasks.TimedOut, tasks.Canceled} {
-		out := (&toolset{}).fromSnapshot(tasks.Snapshot{ID: "tsk_1", State: state, ExitCode: -1,
+		out := (&toolset{}).snapshotOut(tasks.Snapshot{ID: "tsk_1", State: state, ExitCode: -1,
 			Duration: 50 * time.Second})
 		if out.Next != nextstep.Reobserve {
 			t.Errorf("%s: next = %q, want %q", state, out.Next, nextstep.Reobserve)
@@ -157,7 +157,7 @@ func TestAKilledCommandTellsTheCallerTheEffectIsUnknown(t *testing.T) {
 }
 
 func TestARunningTaskIsToldToPoll(t *testing.T) {
-	out := (&toolset{}).fromSnapshot(tasks.Snapshot{ID: "tsk_1", State: tasks.Running})
+	out := (&toolset{}).snapshotOut(tasks.Snapshot{ID: "tsk_1", State: tasks.Running})
 	if out.Next != nextstep.Wait {
 		t.Fatalf("next = %q, want %q", out.Next, nextstep.Wait)
 	}
@@ -197,7 +197,7 @@ func TestASuccessfulResultSendsNoNextField(t *testing.T) {
 	if bytesContain(applied, "next") {
 		t.Errorf("an applied change set carries a next field: %s", applied)
 	}
-	done, err := json.Marshal((&toolset{}).fromSnapshot(tasks.Snapshot{ID: "tsk_1", State: tasks.Succeeded}))
+	done, err := json.Marshal((&toolset{}).snapshotOut(tasks.Snapshot{ID: "tsk_1", State: tasks.Succeeded}))
 	if err != nil {
 		t.Fatal(err)
 	}

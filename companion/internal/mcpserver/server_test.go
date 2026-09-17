@@ -176,6 +176,18 @@ func structured(t *testing.T, res *mcp.CallToolResult, out any) {
 	}
 }
 
+// readEntry calls read_file for one path and returns the single entry it
+// answers with. The batch shape is exercised in list_read_test.go.
+func readEntry(t *testing.T, s *mcp.ClientSession, args map[string]any) readFilesEntry {
+	t.Helper()
+	var out readFilesOutput
+	structured(t, callTool(t, s, "read_file", args), &out)
+	if len(out.Files) != 1 {
+		t.Fatalf("read_file(%v) answered with %d files, want 1", args, len(out.Files))
+	}
+	return out.Files[0]
+}
+
 func TestHandshakeAndToolList(t *testing.T) {
 	session, _ := startSession(t)
 
@@ -186,12 +198,14 @@ func TestHandshakeAndToolList(t *testing.T) {
 		}
 		names = append(names, tool.Name)
 	}
+	// U-T1 holds the default surface under twenty names: a platform keeps
+	// all of them in one turn, alongside whatever else the user connected.
 	want := map[string]bool{
-		"workspace_info": true, "stat_path": true,
+		"workspace_info": true,
 		"list_directory": true, "search_files": true, "read_file": true,
-		"read_files": true, "write_file": true, "apply_patch": true,
+		"write_file": true, "apply_patch": true,
 		"edit_file": true, "change_manage": true,
-		"memory_recall": true, "memory_note": true, "memory_search": true, "memory_read": true, "memory_compact": true,
+		"memory": true,
 	}
 	if len(names) != len(want) {
 		t.Fatalf("got tools %v, want exactly %v", names, want)
@@ -251,16 +265,15 @@ func TestWriteReadRoundTrip(t *testing.T) {
 		t.Fatalf("on-disk content = %q, %v; want %q", onDisk, err, content)
 	}
 
-	var rd readFileOutput
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "notes/hello.txt"}), &rd)
+	rd := readEntry(t, session, map[string]any{"path": "notes/hello.txt"})
 	if rd.Content != content || rd.SHA256 != wantSHA || rd.Truncated || rd.TotalLines != 3 || rd.Encoding != "utf-8" {
 		t.Errorf("read output mismatch: %+v", rd)
 	}
 
 	// Line-range read.
-	structured(t, callTool(t, session, "read_file", map[string]any{
+	rd = readEntry(t, session, map[string]any{
 		"path": "notes/hello.txt", "start_line": 2, "end_line": 2,
-	}), &rd)
+	})
 	if rd.Content != "line two\n" {
 		t.Errorf("line range content = %q, want %q", rd.Content, "line two\n")
 	}
@@ -307,8 +320,7 @@ func TestWriteConflicts(t *testing.T) {
 		t.Fatalf("write with correct hash: %+v", conflict)
 	}
 
-	var rd readFileOutput
-	structured(t, callTool(t, session, "read_file", map[string]any{"path": "a.txt"}), &rd)
+	rd := readEntry(t, session, map[string]any{"path": "a.txt"})
 	if rd.Content != "v2" {
 		t.Errorf("final content = %q, want v2", rd.Content)
 	}
@@ -354,9 +366,9 @@ func TestReadFileErrors(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("binary read must return metadata, got error: %v", res.Content)
 	}
-	var rd readFileOutput
-	structured(t, res, &rd)
-	if rd.Encoding != "binary" || rd.Content != "" {
+	var binary readFilesOutput
+	structured(t, res, &binary)
+	if rd := binary.Files[0]; rd.Encoding != "binary" || rd.Content != "" {
 		t.Errorf("binary read = %+v", rd)
 	}
 

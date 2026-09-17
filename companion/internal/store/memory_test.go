@@ -175,3 +175,90 @@ func TestMemoryNotesAreArchivedInOrderAndStayFindable(t *testing.T) {
 		t.Fatalf("count after delete = %d live, %d archived", live, archived)
 	}
 }
+
+func TestMemoryPlanIsReplacedWholeAndMovedOneStepAtATime(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateWorkspace(ctx, testWorkspace("ws-p")); err != nil {
+		t.Fatal(err)
+	}
+	if plan, err := s.ListMemoryPlan(ctx, "ws-p"); err != nil || len(plan) != 0 {
+		t.Fatalf("fresh workspace: %+v %v", plan, err)
+	}
+
+	saved, err := s.SaveMemoryPlan(ctx, "ws-p", "claude", []MemoryStep{
+		{Title: "read the middleware"},
+		{Title: "move the refresh", State: StepDoing},
+	}, testTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 2 || saved[0].Position != 1 || saved[0].State != StepTodo || saved[1].State != StepDoing {
+		t.Fatalf("saved plan = %+v %+v", saved[0], saved[1])
+	}
+
+	// Moving one step touches that row only, and records who moved it — a
+	// plan carried between platforms has to say where each step was moved.
+	note := "the fixture server has no refresh endpoint"
+	if err := s.UpdateMemoryStep(ctx, "ws-p", "chatgpt", saved[1].ID, StepBlocked, nil, &note, testTime); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.ListMemoryPlan(ctx, "ws-p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan[1].State != StepBlocked || plan[1].Note != note || plan[1].Provider != "chatgpt" {
+		t.Fatalf("moved step = %+v", plan[1])
+	}
+	if plan[0].State != StepTodo || plan[0].Provider != "claude" {
+		t.Fatalf("the other step was touched: %+v", plan[0])
+	}
+
+	// A nil note leaves the note where it is.
+	if err := s.UpdateMemoryStep(ctx, "ws-p", "claude", plan[1].ID, StepDone, nil, nil, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if plan, _ = s.ListMemoryPlan(ctx, "ws-p"); plan[1].State != StepDone || plan[1].Note != note {
+		t.Fatalf("note after a move that did not mention it = %+v", plan[1])
+	}
+
+	// Rewriting replaces the plan whole, so the old ids stop resolving: an
+	// update aimed at a plan nobody is working on must fail, not land.
+	oldID := plan[0].ID
+	if _, err := s.SaveMemoryPlan(ctx, "ws-p", "claude", []MemoryStep{{Title: "start over"}}, testTime); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := s.ListMemoryPlan(ctx, "ws-p")
+	if len(fresh) != 1 || fresh[0].Title != "start over" {
+		t.Fatalf("rewritten plan = %+v", fresh)
+	}
+	if err := s.UpdateMemoryStep(ctx, "ws-p", "claude", oldID, StepDone, nil, nil, testTime); err != ErrNotFound {
+		t.Fatalf("update against a replaced plan = %v, want ErrNotFound", err)
+	}
+
+	// Bounds and the closed state set are refused here too, whatever the
+	// tool layer did or did not cut on the way in.
+	for _, bad := range [][]MemoryStep{
+		{{Title: "  "}},
+		{{Title: strings.Repeat("t", MemoryStepTitleBytes+1)}},
+		{{Title: "ok", Note: strings.Repeat("n", MemoryStepNoteBytes+1)}},
+		{{Title: "ok", State: "almost"}},
+		make([]MemoryStep, MemoryPlanSteps+1),
+	} {
+		if _, err := s.SaveMemoryPlan(ctx, "ws-p", "", bad, testTime); err == nil {
+			t.Errorf("plan %+v was accepted", bad)
+		}
+	}
+	if err := s.UpdateMemoryStep(ctx, "ws-p", "", fresh[0].ID, "almost", nil, nil, testTime); err == nil {
+		t.Error("an invented state was accepted")
+	}
+
+	// Forgetting a workspace forgets its plan too, or "forget everything"
+	// would be a promise the plan outlives.
+	if err := s.DeleteMemory(ctx, "ws-p"); err != nil {
+		t.Fatal(err)
+	}
+	if plan, _ := s.ListMemoryPlan(ctx, "ws-p"); len(plan) != 0 {
+		t.Fatalf("the plan survived DeleteMemory: %+v", plan)
+	}
+}

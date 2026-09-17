@@ -387,10 +387,10 @@ go build -o bin/fylane-companion ./companion/cmd/companion
 
 | | Tools |
 | --- | --- |
-| Read | `list_directory` `read_file` `read_files` `search_files` `stat_path` `git_query` |
+| Read | `list_directory` `read_file` `search_files` `git_query` |
 | Write | `write_file` `edit_file` `apply_patch` `change_manage` |
 | Run | `run_command` `task_status` `code_task` |
-| Remember | `memory_recall` `memory_note` `memory_search` `memory_read` `memory_compact` |
+| Remember | `memory`, with `recall` `note` `plan` `step` `search` `read` `compact` |
 | Navigate | `code_navigate`, finds definitions and references |
 | Extend | `mcp_gateway`, passes calls to another MCP server on your computer |
 

@@ -128,6 +128,11 @@ type Meta struct {
 	// (readbox.Reach), carried so a caller asking about the task later gets
 	// the same answer as the one who started it. Empty says nothing.
 	Network string
+	// WorkspaceID is the folder the work runs in. It is carried so that a
+	// caller asking about the task later can resolve it back to a workspace
+	// — the task outlives the call that started it, and by the time someone
+	// polls, the only thing tying the two together is this.
+	WorkspaceID string
 	// Budget overrides how long Run waits before backgrounding this task.
 	Budget time.Duration
 	// ID, when set, is used instead of a generated one. It exists so a
@@ -140,11 +145,14 @@ type Meta struct {
 
 // Snapshot is an immutable view of a task at one moment.
 type Snapshot struct {
-	ID       string `json:"task_id"`
-	State    State  `json:"state"`
-	Label    string `json:"label,omitempty"`
-	Dir      string `json:"dir,omitempty"`
-	Provider string `json:"provider,omitempty"`
+	ID    string `json:"task_id"`
+	State State  `json:"state"`
+	// WorkspaceID is the folder the work ran in, as recorded when it
+	// started.
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Label       string `json:"label,omitempty"`
+	Dir         string `json:"dir,omitempty"`
+	Provider    string `json:"provider,omitempty"`
 	// Network is readbox.Reach's word for this run, as recorded when it
 	// started. It is not re-derived on read: the answer that matters is the
 	// one the command actually ran under.
@@ -370,22 +378,23 @@ func (m *Manager) acquire(meta Meta) (*task, bool, error) {
 	// this package exists is that the work outlives it.
 	ctx, cancel := context.WithTimeout(m.ctx, m.maxRuntime)
 	t := &task{
-		id:         id,
-		key:        meta.Key,
-		label:      meta.Label,
-		dir:        meta.Dir,
-		provider:   meta.Provider,
-		network:    meta.Network,
-		state:      Running,
-		startedAt:  m.now(),
-		seq:        m.nextSeq,
-		maxRuntime: m.maxRuntime,
-		stdout:     newBuffer(m.maxOutput),
-		stderr:     newBuffer(m.maxOutput),
-		ctx:        ctx,
-		cancel:     cancel,
-		done:       make(chan struct{}),
-		now:        m.now,
+		id:          id,
+		key:         meta.Key,
+		label:       meta.Label,
+		dir:         meta.Dir,
+		workspaceID: meta.WorkspaceID,
+		provider:    meta.Provider,
+		network:     meta.Network,
+		state:       Running,
+		startedAt:   m.now(),
+		seq:         m.nextSeq,
+		maxRuntime:  m.maxRuntime,
+		stdout:      newBuffer(m.maxOutput),
+		stderr:      newBuffer(m.maxOutput),
+		ctx:         ctx,
+		cancel:      cancel,
+		done:        make(chan struct{}),
+		now:         m.now,
 	}
 	m.nextSeq++
 	m.tasks[id] = t
@@ -448,21 +457,22 @@ func (m *Manager) forgetLocked(id string, t *task) {
 }
 
 type task struct {
-	id         string
-	key        string
-	seq        uint64
-	label      string
-	dir        string
-	provider   string
-	network    string
-	startedAt  time.Time
-	maxRuntime time.Duration
-	stdout     *buffer
-	stderr     *buffer
-	ctx        context.Context
-	cancel     context.CancelFunc
-	done       chan struct{}
-	now        func() time.Time
+	id          string
+	key         string
+	seq         uint64
+	label       string
+	dir         string
+	provider    string
+	network     string
+	workspaceID string
+	startedAt   time.Time
+	maxRuntime  time.Duration
+	stdout      *buffer
+	stderr      *buffer
+	ctx         context.Context
+	cancel      context.CancelFunc
+	done        chan struct{}
+	now         func() time.Time
 
 	mu       sync.Mutex
 	state    State
@@ -527,6 +537,7 @@ func (t *task) snapshot(stdoutCursor, stderrCursor int) Snapshot {
 		Network:         t.network,
 		Dir:             t.dir,
 		Provider:        t.provider,
+		WorkspaceID:     t.workspaceID,
 		ExitCode:        t.exitCode,
 		Error:           t.errMsg,
 		Stdout:          outText,
