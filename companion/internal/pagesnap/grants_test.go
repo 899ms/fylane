@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // memStore is a grant store that keeps what it was given, and can fail.
@@ -153,5 +154,69 @@ func TestBrowserPathsCoverEachInstaller(t *testing.T) {
 	}
 	if len(browserPaths("linux", get)) != 0 {
 		t.Error("linux uses PATH, not fixed paths")
+	}
+}
+
+// Windows hands Go a clock coarse enough that two grants a few microseconds
+// apart carry the identical instant — the CI failure that found this had both
+// records at the same nanosecond, monotonic reading included. sort.Slice is
+// not stable, so the order flipped between calls, and that order is what the
+// settings page shows and what the store is handed.
+//
+// Loading from a store is how the same instant is reproduced here on any
+// platform: LoadGrants keeps whatever timestamps it is given.
+func TestGrantsListIsStableWhenTwoGrantsShareATimestamp(t *testing.T) {
+	same := time.Date(2026, 9, 17, 5, 41, 21, 152553400, time.UTC)
+	store := &memStore{held: []Grant{
+		{WorkspaceID: "ws_b", GrantedAt: same},
+		{WorkspaceID: "ws_a", GrantedAt: same},
+	}}
+	g, err := LoadGrants(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 20; i++ {
+		list := g.List()
+		if len(list) != 2 {
+			t.Fatalf("list = %+v", list)
+		}
+		if list[0].WorkspaceID != "ws_a" || list[1].WorkspaceID != "ws_b" {
+			t.Fatalf("call %d returned %s then %s; the order has to be the same every time",
+				i, list[0].WorkspaceID, list[1].WorkspaceID)
+		}
+	}
+}
+
+// A later grant still sorts after an earlier one — the tiebreak must not
+// have quietly become the only key.
+func TestGrantsListStillPutsTheOlderGrantFirst(t *testing.T) {
+	early := time.Date(2026, 9, 17, 5, 0, 0, 0, time.UTC)
+	late := early.Add(time.Minute)
+	store := &memStore{held: []Grant{
+		{WorkspaceID: "ws_a", GrantedAt: late},
+		{WorkspaceID: "ws_z", GrantedAt: early},
+	}}
+	g, err := LoadGrants(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list := g.List()
+	if list[0].WorkspaceID != "ws_z" {
+		t.Fatalf("list = %+v; oldest first, whatever the ids say", list)
+	}
+}
+
+// If the windows branch is ever built with filepath the same way darwin was,
+// this catches it on a mac: filepath would answer with forward slashes there.
+func TestWindowsBrowserPathsStayBackslashed(t *testing.T) {
+	get := func(k string) string {
+		return map[string]string{"ProgramFiles": `C:\Program Files`}[k]
+	}
+	for _, p := range browserPaths("windows", get) {
+		if strings.Contains(p, "/") {
+			t.Fatalf("windows path built with the host's separator: %s", p)
+		}
 	}
 }

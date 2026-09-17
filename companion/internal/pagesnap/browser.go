@@ -3,7 +3,7 @@ package pagesnap
 import (
 	"os"
 	osexec "os/exec"
-	"path/filepath"
+	"path"
 	"runtime"
 )
 
@@ -28,6 +28,12 @@ func FindBrowser() string {
 
 // browserPaths lists where each platform's installers put the browsers, in
 // order of preference.
+//
+// The darwin branch joins with path, not filepath: it is naming paths on
+// macOS, and filepath speaks whichever separator the machine running this
+// happens to use. The two are the same on macOS and differ on Windows, so
+// building a mac path with filepath produces backslashes on a Windows host —
+// a function asked for one platform's paths answering in another's.
 func browserPaths(goos string, getenv func(string) string) []string {
 	var out []string
 	switch goos {
@@ -40,11 +46,11 @@ func browserPaths(goos string, getenv func(string) string) []string {
 		}
 		bases := []string{"/Applications"}
 		if home := getenv("HOME"); home != "" {
-			bases = append(bases, filepath.Join(home, "Applications"))
+			bases = append(bases, path.Join(home, "Applications"))
 		}
 		for _, base := range bases {
 			for _, app := range apps {
-				out = append(out, filepath.Join(base, app))
+				out = append(out, path.Join(base, app))
 			}
 		}
 	case "windows":

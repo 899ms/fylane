@@ -101,7 +101,18 @@ func (g *Grants) listLocked() []Grant {
 	for ws, at := range g.m {
 		out = append(out, Grant{WorkspaceID: ws, GrantedAt: at})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].GrantedAt.Before(out[j].GrantedAt) })
+	// Two grants can carry the same instant: the clock a platform gives Go
+	// is coarser than the time it takes to answer twice (about 15 ms on
+	// Windows), and sort.Slice is not stable. Without a second key the same
+	// two grants come back in a different order from one call to the next,
+	// and that order is what the settings page lists and what gets written
+	// to the store.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].GrantedAt.Equal(out[j].GrantedAt) {
+			return out[i].WorkspaceID < out[j].WorkspaceID
+		}
+		return out[i].GrantedAt.Before(out[j].GrantedAt)
+	})
 	return out
 }
 
