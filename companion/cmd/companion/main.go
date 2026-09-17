@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/leazoot/fylane/companion/internal/app"
+	"github.com/leazoot/fylane/companion/internal/applog"
 	"github.com/leazoot/fylane/companion/internal/connectinfo"
 	"github.com/leazoot/fylane/companion/internal/crashlog"
 	"github.com/leazoot/fylane/companion/internal/devicecred"
@@ -263,7 +264,19 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	// A copy on disk, because the desktop app runs this as a child process
+	// with its output wired to a stderr no packaged app has a terminal
+	// behind: without the file, a Core that dies after hours takes its last
+	// words with it. A log file that cannot be opened is not worth refusing
+	// to start over.
+	out, closeLog, err := applog.Open(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "logging to file unavailable: %v\n", err)
+		out = os.Stderr
+	} else {
+		defer closeLog()
+	}
+	logger := slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

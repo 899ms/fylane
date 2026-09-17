@@ -13,6 +13,8 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+
+	"github.com/leazoot/fylane/companion/internal/applog"
 )
 
 const (
@@ -118,14 +120,32 @@ func Diagnostics(dataDir, version, outPath string) error {
 	fmt.Fprintf(info, "fylane-companion %s %s/%s go%s\n",
 		version, runtime.GOOS, runtime.GOARCH, strings.TrimPrefix(runtime.Version(), "go"))
 
-	dir := filepath.Join(dataDir, dirName)
+	// Two directories, one bundle: the crash captures say how a run ended,
+	// the ordinary log says what it was doing first. A crash report without
+	// the minutes before it is a stack trace with no story, and the log is
+	// the only witness when a run ends without a panic at all.
+	for _, src := range []struct{ dir, prefix string }{
+		{filepath.Join(dataDir, dirName), "crash-"},
+		{filepath.Join(dataDir, applog.DirName), "companion"},
+	} {
+		if err := addDir(zw, src.dir, src.prefix); err != nil {
+			return err
+		}
+	}
+	return zw.Close()
+}
+
+// addDir copies every file in dir whose name starts with prefix into the
+// bundle. Anything else in the directory is left alone: the bundle carries
+// what this package put there, never whatever happens to sit beside it.
+func addDir(zw *zip.Writer, dir, prefix string) error {
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		name := e.Name()
-		if !strings.HasPrefix(name, "crash-") {
+		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
 		w, err := zw.Create(name)
@@ -142,8 +162,5 @@ func Diagnostics(dataDir, version, outPath string) error {
 			return err
 		}
 	}
-	if err := zw.Close(); err != nil {
-		return err
-	}
-	return out.Close()
+	return nil
 }

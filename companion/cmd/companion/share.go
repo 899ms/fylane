@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/leazoot/fylane/companion/internal/app"
+	"github.com/leazoot/fylane/companion/internal/applog"
 	"github.com/leazoot/fylane/companion/internal/tunnelget"
 	"github.com/leazoot/fylane/companion/internal/tunnelproc"
 )
@@ -86,7 +87,14 @@ func share(args []string) error {
 	}
 
 	fmt.Printf("sharing %s — starting a tunnel, this takes a few seconds\n", filepath.Base(dir))
-	a := app.New(cfg, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})))
+	out, closeLog, err := applog.Open(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "logging to file unavailable: %v\n", err)
+		out = os.Stderr
+	} else {
+		defer closeLog()
+	}
+	a := app.New(cfg, slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: cfg.LogLevel})))
 	a.Ready = (&shareAnnouncer{ctx: ctx, out: os.Stdout}).announce
 	a.Ask = terminalApprover()
 	return a.Run(ctx)

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/leazoot/fylane/companion/internal/applog"
 	"time"
 )
 
@@ -120,5 +122,50 @@ func TestDiagnosticsExcludesSecrets(t *testing.T) {
 	// Refuses to clobber an existing bundle.
 	if err := Diagnostics(dataDir, "0.0.1-test", out); err == nil {
 		t.Fatal("overwrote an existing bundle")
+	}
+}
+
+func TestDiagnosticsCarriesTheOrdinaryLog(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Cleanup(Release)
+	if _, err := Setup(dataDir, "0.0.1-test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A run that ended without a panic leaves no crash capture at all — the
+	// ordinary log is then the only witness, and a bundle without it is a
+	// bundle that cannot answer the question it was collected for.
+	logs := filepath.Join(dataDir, applog.DirName)
+	if err := os.MkdirAll(logs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(logs, "companion.log"), []byte("the last thing it said\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Something else in the same directory must not travel.
+	if err := os.WriteFile(filepath.Join(logs, "notes.txt"), []byte("private\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "bundle.zip")
+	if err := Diagnostics(dataDir, "0.0.1-test", out); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+
+	var names []string
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	joined := strings.Join(names, ",")
+	if !strings.Contains(joined, "companion.log") {
+		t.Fatalf("bundle without the ordinary log: %v", names)
+	}
+	if strings.Contains(joined, "notes.txt") {
+		t.Fatalf("bundle carried a file this package did not write: %v", names)
 	}
 }
