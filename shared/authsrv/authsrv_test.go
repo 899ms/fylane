@@ -291,6 +291,10 @@ func registerClient(t *testing.T, ts *httptest.Server) (clientID, redirectURI st
 
 var requestIDRe = regexp.MustCompile(`name="request_id" value="([^"]+)"`)
 
+// verifyCodeRe reads the code from the one place the page renders it: the
+// script's VERIFY assignment.
+var verifyCodeRe = regexp.MustCompile(`VERIFY\s*=\s*"?([2-9A-HJKMNP-Z]{2}-[2-9A-HJKMNP-Z]{2})"?`)
+
 // authorize runs the authorize flow with the pairing code and returns the
 // authorization code.
 func authorize(t *testing.T, ts *httptest.Server, clientID, redirectURI, challenge, pairingCode string) string {
@@ -361,7 +365,13 @@ func TestPushPairingFlow(t *testing.T) {
 		t.Fatalf("no request id in page")
 	}
 	requestID := string(rid[1])
-	vc := regexp.MustCompile(`([2-9A-HJKMNP-Z]{2}-[2-9A-HJKMNP-Z]{2})`).FindSubmatch(page)
+	// Anchored on where the page actually renders it. An unanchored search
+	// takes the first match anywhere in the HTML, and the request id — a
+	// base64url value printed twice above this point — carries uppercase
+	// letters and dashes, so a run like "FA-WJ" inside it wins the race and
+	// the test fails on an id it mistook for the code (seen on Windows CI,
+	// 2026-09-12).
+	vc := verifyCodeRe.FindSubmatch(page)
 	if vc == nil {
 		t.Fatalf("no verify code in page: %s", page)
 	}

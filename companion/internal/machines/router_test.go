@@ -230,8 +230,6 @@ func TestRouterWaitsForAMachineThatIsOnItsWay(t *testing.T) {
 	// retry of an interrupted call lands inside that window. The call waits
 	// for the machine instead of answering "not connected" a second early;
 	// a local call does not wait at all.
-	settlePoll = 5 * time.Millisecond
-	t.Cleanup(func() { settlePoll = 100 * time.Millisecond })
 	remote := newFakeRemote(t)
 	remote.version, remote.running = "0.0.4", true
 	remote.hold = make(chan struct{})
@@ -239,7 +237,8 @@ func TestRouterWaitsForAMachineThatIsOnItsWay(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	m := New(Options{Store: st, Dialer: remote, Version: "0.0.4-dev",
-		Local: func(id string) bool { return id == "ws_local" }})
+		Local:      func(id string) bool { return id == "ws_local" },
+		SettlePoll: 5 * time.Millisecond})
 	if err := m.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -269,15 +268,14 @@ func TestRouterWaitsForAMachineThatIsOnItsWay(t *testing.T) {
 }
 
 func TestWorkspacesWaitForTheMachineTheWindowStandsOn(t *testing.T) {
-	settlePoll = 5 * time.Millisecond
-	t.Cleanup(func() { settlePoll = 100 * time.Millisecond })
 	remote := newFakeRemote(t)
 	remote.version, remote.running = "0.0.4", true
 	remote.hold = make(chan struct{})
 	st := &memStore{}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	m := New(Options{Store: st, Dialer: remote, Version: "0.0.4-dev"})
+	m := New(Options{Store: st, Dialer: remote, Version: "0.0.4-dev",
+		SettlePoll: 5 * time.Millisecond})
 	if err := m.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

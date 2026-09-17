@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -36,6 +37,12 @@ type fakeRemote struct {
 	// home, when set, is a real directory that stands in for the remote
 	// $HOME: the browse script runs in a local sh against it.
 	home string
+	// homeAsSeen is that same directory the way the sh running the script
+	// prints it. On macOS and Linux it is `home` verbatim; the Windows sh is
+	// MSYS, which shows C:\Users\...\Temp\x as /tmp/x. Assertions compare
+	// against this one, because it is what a remote answer contains — while
+	// `home` stays the local path, which is what MkdirAll and cmd.Dir need.
+	homeAsSeen string
 	// logMCP, when set, is what the remote's serve.log says the MCP
 	// listener is on — the only place a 0.0.4 Companion says it.
 	logMCP string
@@ -242,11 +249,14 @@ func (s *memStore) Save(list []Machine) error {
 
 func harness(t *testing.T, remote *fakeRemote) (*Manager, *memStore) {
 	t.Helper()
-	minBackoff, maxBackoff = 20*time.Millisecond, 50*time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	st := &memStore{}
-	m := New(Options{Store: st, Dialer: remote, Version: "0.0.4-dev"})
+	// Pacing goes in per manager, not into package variables: the reconnect
+	// loop a finished test started keeps reading them while the next test
+	// writes, and no cleanup ordering can close that window.
+	m := New(Options{Store: st, Dialer: remote, Version: "0.0.4-dev",
+		MinBackoff: 20 * time.Millisecond, MaxBackoff: 50 * time.Millisecond})
 	if err := m.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +479,6 @@ func TestRemoveForgetsTheMachine(t *testing.T) {
 func TestStartReconnectsEveryStoredMachine(t *testing.T) {
 	remote := newFakeRemote(t)
 	remote.version, remote.running = "0.0.4", true
-	minBackoff, maxBackoff = 20*time.Millisecond, 50*time.Millisecond
 	st := &memStore{list: []Machine{{ID: "m_a", Name: "a", Host: "a.example"}, {ID: "m_b", Name: "b", Host: "b.example"}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -604,6 +613,7 @@ func TestUpdateReconnectsWithTheCorrectedDetails(t *testing.T) {
 func TestBrowseWalksDirectoriesOverSSH(t *testing.T) {
 	remote := newFakeRemote(t)
 	remote.home = t.TempDir()
+	remote.homeAsSeen = asSeenBySh(t, remote.home)
 	for _, d := range []string{"proj/.git", "Notes", ".config", "it's here/sub", "$HOME"} {
 		if err := os.MkdirAll(filepath.Join(remote.home, d), 0o755); err != nil {
 			t.Fatal(err)
@@ -623,7 +633,7 @@ func TestBrowseWalksDirectoriesOverSSH(t *testing.T) {
 	if err != nil || ls.Reason != "" {
 		t.Fatalf("browse home = %+v, %v", ls, err)
 	}
-	if ls.Path != remote.home || ls.Home != remote.home || ls.Parent != filepath.Dir(remote.home) {
+	if ls.Path != remote.homeAsSeen || ls.Home != remote.homeAsSeen || ls.Parent != path.Dir(remote.homeAsSeen) {
 		t.Errorf("home listing = %+v", ls)
 	}
 	var names []string
@@ -642,21 +652,21 @@ func TestBrowseWalksDirectoriesOverSSH(t *testing.T) {
 	}
 
 	// Awkward names travel intact, and ~ means the machine's home.
-	for _, dir := range []string{remote.home + "/it's here", "~/it's here", remote.home + "/$HOME"} {
+	for _, dir := range []string{remote.homeAsSeen + "/it's here", "~/it's here", remote.homeAsSeen + "/$HOME"} {
 		ls, err = m.Browse(ctx, st.ID, dir)
-		if err != nil || ls.Reason != "" || !strings.HasPrefix(ls.Path, remote.home+"/") {
+		if err != nil || ls.Reason != "" || !strings.HasPrefix(ls.Path, remote.homeAsSeen+"/") {
 			t.Errorf("browse %q = %+v, %v", dir, ls, err)
 		}
 	}
-	if ls, _ = m.Browse(ctx, st.ID, remote.home+"/it's here"); len(ls.Entries) != 1 || ls.Entries[0].Name != "sub" {
+	if ls, _ = m.Browse(ctx, st.ID, remote.homeAsSeen+"/it's here"); len(ls.Entries) != 1 || ls.Entries[0].Name != "sub" {
 		t.Errorf("subdir listing = %+v", ls)
 	}
-	if ls, _ = m.Browse(ctx, st.ID, "~"); ls.Path != remote.home {
+	if ls, _ = m.Browse(ctx, st.ID, "~"); ls.Path != remote.homeAsSeen {
 		t.Errorf("~ = %+v", ls)
 	}
 
 	// What is not a directory is a sentence, not an error.
-	for _, dir := range []string{remote.home + "/nope", remote.home + "/a-file"} {
+	for _, dir := range []string{remote.homeAsSeen + "/nope", remote.homeAsSeen + "/a-file"} {
 		if ls, err = m.Browse(ctx, st.ID, dir); err != nil || ls.Reason != ReasonNoDir || ls.Path != "" {
 			t.Errorf("browse %q = %+v, %v", dir, ls, err)
 		}
@@ -711,4 +721,23 @@ func TestSelectIsRememberedAndClearedWithTheMachine(t *testing.T) {
 	if err := m.Select(""); err != nil {
 		t.Errorf("this computer is always selectable: %v", err)
 	}
+}
+
+// asSeenBySh asks the shell that runs the browse script how it spells a
+// directory. The Windows shell is MSYS: it is handed C:\Users\...\Temp\x
+// and prints /tmp/x, so a test comparing a remote answer against the local
+// path compares two spellings of the same place. Asking the shell avoids
+// modelling that mapping — whatever it answers is by definition what the
+// script will answer.
+func asSeenBySh(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", `cd "$D" && pwd`)
+	cmd.Env = append(os.Environ(), "D="+dir)
+	out, err := cmd.Output()
+	if err != nil {
+		// No sh, or it could not enter the directory: the browse script
+		// would fail the same way, and the test below will say so.
+		return dir
+	}
+	return strings.TrimSpace(string(out))
 }

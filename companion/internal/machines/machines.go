@@ -108,6 +108,15 @@ type Options struct {
 	// a workspace nobody lists while a machine is still connecting waits
 	// for that machine, unless the workspace is local.
 	Local func(id string) bool
+
+	// Pacing. Zero means the defaults below. These live on the manager
+	// rather than in package variables because a test that shortens them is
+	// not alone in the process: the reconnect loop a previous test started
+	// is still reading them while the next test writes, which the race
+	// detector reports and which no amount of cleanup ordering fixes.
+	SettlePoll time.Duration
+	MinBackoff time.Duration
+	MaxBackoff time.Duration
 }
 
 // Manager owns the links to every configured machine.
@@ -117,6 +126,10 @@ type Manager struct {
 	version string
 	log     *slog.Logger
 	local   func(id string) bool
+
+	settlePoll time.Duration
+	minBackoff time.Duration
+	maxBackoff time.Duration
 
 	rt *router
 
@@ -136,8 +149,18 @@ func New(opt Options) *Manager {
 	if opt.Log == nil {
 		opt.Log = slog.Default()
 	}
+	if opt.SettlePoll == 0 {
+		opt.SettlePoll = defaultSettlePoll
+	}
+	if opt.MinBackoff == 0 {
+		opt.MinBackoff = defaultMinBackoff
+	}
+	if opt.MaxBackoff == 0 {
+		opt.MaxBackoff = defaultMaxBackoff
+	}
 	m := &Manager{store: opt.Store, dial: opt.Dialer, version: opt.Version, log: opt.Log,
-		local: opt.Local, links: map[string]*link{}}
+		local: opt.Local, links: map[string]*link{},
+		settlePoll: opt.SettlePoll, minBackoff: opt.MinBackoff, maxBackoff: opt.MaxBackoff}
 	m.rt = newRouter(m)
 	return m
 }
@@ -418,9 +441,8 @@ type endpoint struct {
 	id, name, mcpBase, ctlBase, token string
 }
 
-// settlePoll is how often a waiting call looks again. A variable so tests
-// do not wait on it.
-var settlePoll = 100 * time.Millisecond
+// defaultSettlePoll is how often a waiting call looks again.
+const defaultSettlePoll = 100 * time.Millisecond
 
 // pending lists the machines whose link is on its way: being connected,
 // being started, or reconnecting after a drop. Off, missing, installing
@@ -462,7 +484,7 @@ func (m *Manager) settle(ctx context.Context, ids []string, max time.Duration) b
 		select {
 		case <-ctx.Done():
 			return true
-		case <-time.After(settlePoll):
+		case <-time.After(m.settlePoll):
 		}
 	}
 	return true
@@ -591,17 +613,17 @@ const (
 	healthTimeout  = 10 * time.Second
 )
 
-// Retry pacing; variables so tests do not wait on them.
-var (
-	minBackoff = 2 * time.Second
-	maxBackoff = 30 * time.Second
+// Retry pacing.
+const (
+	defaultMinBackoff = 2 * time.Second
+	defaultMaxBackoff = 30 * time.Second
 )
 
 // loop keeps one machine connected until ctx ends: probe, install if asked,
 // start the remote Companion if it is not running, forward, verify, then
 // wait for the session to drop and start over with backoff.
 func (l *link) loop(ctx context.Context) {
-	backoff := minBackoff
+	backoff := l.mgr.minBackoff
 	for {
 		err := l.attempt(ctx)
 		if ctx.Err() != nil {
@@ -611,7 +633,7 @@ func (l *link) loop(ctx context.Context) {
 			l.setWithReason(ctx, StateError, err.Error(), reasonOf(err))
 		} else {
 			// A session that was up and dropped reconnects promptly.
-			backoff = minBackoff
+			backoff = l.mgr.minBackoff
 			l.setWithReason(ctx, StateError, "connection lost; reconnecting", ReasonLost)
 		}
 		select {
@@ -619,7 +641,7 @@ func (l *link) loop(ctx context.Context) {
 			return
 		case <-time.After(backoff):
 		}
-		backoff = min(backoff*2, maxBackoff)
+		backoff = min(backoff*2, l.mgr.maxBackoff)
 	}
 }
 
