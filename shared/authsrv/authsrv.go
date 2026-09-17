@@ -65,6 +65,13 @@ type Server struct {
 	// treats an unanswered claim as a normal outcome and offers the code
 	// instead of failing silently.
 	CompanionOrigin string
+	// OnFamilyRevoked, when set, is called after rotation reuse has revoked a
+	// token family, naming the client the replayed token belonged to. It
+	// exists so the machine running this server can say so somewhere a person
+	// will look: the platform reports only that it cannot connect, and the
+	// reason — every session for that client is gone until it authorizes
+	// again — is knowable nowhere else.
+	OnFamilyRevoked func(clientID string)
 }
 
 // DefaultCompanionOrigin is where a Companion listens unless told otherwise
@@ -1194,6 +1201,13 @@ func (s *Server) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("authsrv: refresh token reuse detected; token family revoked")
+		// Only on the path where the family is actually gone. The branch
+		// above answers the same refusal with the family still live, and
+		// reporting a revocation there would mark a platform disconnected
+		// that is still holding working sessions.
+		if s.OnFamilyRevoked != nil {
+			s.OnFamilyRevoked(token.ClientID)
+		}
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "refresh token reuse detected; all sessions revoked")
 		return
 	}

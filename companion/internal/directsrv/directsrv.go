@@ -60,6 +60,30 @@ func Open(ctx context.Context, dataDir, deviceName string, mcp http.Handler, log
 // Close releases the auth database.
 func (s *Server) Close() error { return s.store.Close() }
 
+// SetOnRevoked installs a callback for rotation-reuse revocation, naming the
+// platform rather than the client: callers keep their records by provider,
+// and a client id is reissued on every re-registration.
+//
+// A client that cannot be resolved is reported and dropped. Guessing a
+// platform here would mark the wrong one as needing to reconnect, which is
+// worse than saying nothing — the window would send the user to re-authorize
+// a connection that was never broken.
+func (s *Server) SetOnRevoked(fn func(provider string)) {
+	s.auth.OnFamilyRevoked = func(clientID string) {
+		c, err := s.store.GetClient(clientID)
+		if err != nil {
+			s.log.Warn("token family revoked for a client no longer on record")
+			return
+		}
+		provider := authsrv.ProviderFromClient(c.Name, c.RedirectURIs)
+		if provider == "" || provider == "unknown" {
+			s.log.Warn("token family revoked for an unrecognised client")
+			return
+		}
+		fn(provider)
+	}
+}
+
 // SetPublicURL records the address platforms reach this Companion at. The
 // tunnel decides it, and a quick tunnel decides it again on every restart, so
 // it is settable at runtime rather than fixed at startup.

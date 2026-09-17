@@ -342,6 +342,17 @@ func (a *App) Run(ctx context.Context) error {
 		// The claim listener is this process's own loopback mux (below), so
 		// the page is told where it actually is rather than guessing 8787.
 		direct.SetClaimOrigin("http://" + a.cfg.Addr)
+		// Rotation reuse revokes every session a platform holds. Until this
+		// lands somewhere a person looks, the only report they get is the
+		// platform's own "cannot connect" — which reads like the machine is
+		// off, and sends them looking in the wrong place.
+		direct.SetOnRevoked(func(provider string) {
+			a.log.Warn("authorization revoked after refresh token reuse; the platform must connect again",
+				"provider", provider)
+			if err := st.MarkConnectorRevoked(ctx, provider); err != nil {
+				a.log.Warn("recording a revocation", "provider", provider, "error", err)
+			}
+		})
 		go direct.PurgeLoop(ctx)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -67,6 +68,32 @@ func (s *Store) UpsertConnector(ctx context.Context, c *Connector) error {
 		c.TokenReference)
 	if err := row.Scan(&c.ID); err != nil {
 		return fmt.Errorf("upserting connector %s/%s: %w", c.Provider, c.RemoteConnectorID, err)
+	}
+	return nil
+}
+
+// ConnectorRevoked is the status of a platform whose authorization was
+// revoked — rotation reuse took every session it had. It is not offline and
+// not paired: it has to authorize again before anything of it works.
+const ConnectorRevoked = "revoked"
+
+// MarkConnectorRevoked records that a platform must authorize again. It
+// writes the status column and nothing else on purpose: UpsertConnector
+// replaces capabilities and token_reference from whatever the caller
+// carries, and a caller that knows only "this one is revoked" would blank
+// both of them on the way past.
+//
+// A provider with no row is not an error. Revocation can arrive for a
+// platform that authorized but never called a tool, and there is then
+// nothing on record to mark.
+func (s *Store) MarkConnectorRevoked(ctx context.Context, provider string) error {
+	if strings.TrimSpace(provider) == "" {
+		return fmt.Errorf("marking a connector revoked: no provider named")
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE connectors SET status = ? WHERE provider = ?`,
+		ConnectorRevoked, provider); err != nil {
+		return fmt.Errorf("marking connector %s revoked: %w", provider, err)
 	}
 	return nil
 }
