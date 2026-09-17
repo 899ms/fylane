@@ -81,6 +81,11 @@ export interface CorePoll {
   currentMachineID: string;
 }
 
+/** How often the window re-reads the Core. One beat for the whole app: the
+ *  lane's snapshot and the memory page's plan are the same liveness promise,
+ *  and two cadences would make them disagree on screen. */
+export const POLL_MS = 2000;
+
 /** pollCore reads everything the window shows in one pass. It throws if the
  * Core cannot be reached; the caller decides what an unreachable Core looks
  * like on screen. */

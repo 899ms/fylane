@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { DICT, LangContext } from "../lib/i18n";
@@ -12,11 +12,14 @@ import type {
   MemoryDoc,
   MemoryQuery,
   MemorySource,
+  MemoryStep,
+  StepPatch,
   PrefsInfo,
   Source,
   TaskInfo,
   Workspace,
 } from "../lib/core";
+import { MEMORY_LIMITS } from "../lib/core";
 import { OFFLINE_SNAPSHOT, type LaneSnapshot } from "../lib/lane";
 import { LaneScreen } from "./Lane";
 import { TasksScreen } from "./Tasks";
@@ -3649,6 +3652,7 @@ function memDoc(over: Partial<MemoryDoc> = {}): MemoryDoc {
         created_at: new Date(2026, 8, 9, 9, 0).toISOString(),
       },
     ],
+    plan: [],
     live: 2,
     archived: 40,
     ...over,
@@ -3657,9 +3661,16 @@ function memDoc(over: Partial<MemoryDoc> = {}): MemoryDoc {
 
 /** A source that remembers what it was asked and answers from a document. */
 function memSource(doc: MemoryDoc, over: Partial<MemorySource> = {}) {
-  const calls: { fetch: MemoryQuery[]; saved: unknown[]; deleted: number[]; cleared: number } = {
+  const calls: {
+    fetch: MemoryQuery[];
+    saved: unknown[];
+    steps: { id: number; patch: StepPatch }[];
+    deleted: number[];
+    cleared: number;
+  } = {
     fetch: [],
     saved: [],
+    steps: [],
     deleted: [],
     cleared: 0,
   };
@@ -3676,6 +3687,14 @@ function memSource(doc: MemoryDoc, over: Partial<MemorySource> = {}) {
     savePage: async (workspace_id, page) => {
       calls.saved.push(page);
       return { workspace_id, page, provider: "user", updated_at: MEM_NOW.toISOString() };
+    },
+    saveStep: async (_ws, id, patch) => {
+      calls.steps.push({ id, patch });
+      // The Core answers with the whole plan, and the change is in it: the
+      // screen reloads from this, so a test that never applied the patch
+      // would show the old words and pass for the wrong reason.
+      doc.plan = (doc.plan ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s));
+      return doc.plan;
     },
     deleteNote: async (_ws, id) => {
       calls.deleted.push(id);
@@ -3716,6 +3735,197 @@ function memoryProps(source: MemorySource) {
     onHelp: () => {},
   };
 }
+
+const memPlan: MemoryStep[] = [
+  {
+    id: 1,
+    position: 1,
+    title: "Read the connection layer",
+    state: "done",
+    provider: "chatgpt",
+    updated_at: new Date(2026, 8, 11, 9, 0).toISOString(),
+  },
+  {
+    id: 2,
+    position: 2,
+    title: "Delete the poller and run the tests",
+    state: "doing",
+    provider: "chatgpt",
+    updated_at: new Date(2026, 8, 12, 14, 2).toISOString(),
+  },
+  {
+    id: 3,
+    position: 3,
+    title: "Add the settings toggle",
+    state: "blocked",
+    note: "No design board for that cell yet.",
+    provider: "claude",
+    updated_at: new Date(2026, 8, 12, 9, 20).toISOString(),
+  },
+  {
+    id: 4,
+    position: 4,
+    title: "Update the CHANGELOG",
+    state: "todo",
+    provider: "chatgpt",
+    updated_at: new Date(2026, 8, 11, 9, 0).toISOString(),
+  },
+];
+
+describe("memory plan · changing one step (Fylane-V3 board 23)", () => {
+  const editRow = (n: number) => host.querySelector<HTMLButtonElement>(`[aria-label="Edit step ${n}"]`)!;
+  const rows = () => Array.from(document.querySelectorAll(".fy-mem-step"));
+  const typeIn = (el: HTMLInputElement | HTMLTextAreaElement, value: string) =>
+    act(() => {
+      const proto =
+        el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+  it("edits the title where the title already is, and sends only what changed", async () => {
+    const { source, calls } = memSource(memDoc({ plan: memPlan }));
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    click(editRow(3));
+    // Board 23's whole claim: the row stays the row. The field that opened
+    // is inside the same step, so nothing moved and no header appeared.
+    const input = rows()[2]?.querySelector<HTMLInputElement>(".fy-mem-ttitle");
+    expect(input).not.toBeNull();
+    expect(input!.value).toBe("Add the settings toggle");
+
+    await typeIn(input!, "Add the settings toggle behind a flag");
+    click(button("Save"));
+    await settle();
+
+    // Only the title travelled: a save must not stamp the user's name on a
+    // state and a note they never touched.
+    expect(calls.steps).toEqual([{ id: 3, patch: { title: "Add the settings toggle behind a flag" } }]);
+    expect(text()).toContain("Add the settings toggle behind a flag");
+    expect(host.querySelector(".fy-mem-editpanel")).toBeNull();
+  });
+
+  it("moves the row's own dot as the state is chosen, before anything is saved", async () => {
+    const { source, calls } = memSource(memDoc({ plan: memPlan }));
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    click(editRow(3));
+    expect(rows()[2]?.getAttribute("data-state")).toBe("blocked");
+    click(button("Done"));
+    // The dot answers the word immediately: that correspondence is what the
+    // four choices are taught by, and it costs nothing until Save.
+    expect(rows()[2]?.getAttribute("data-state")).toBe("done");
+    expect(calls.steps).toEqual([]);
+
+    click(button("Save"));
+    await settle();
+    expect(calls.steps).toEqual([{ id: 3, patch: { state: "done" } }]);
+  });
+
+  it("says the step is gone when the plan was rewritten, and keeps what was typed", async () => {
+    const { source } = memSource(memDoc({ plan: memPlan }), {
+      saveStep: async () => {
+        throw new Error("core error (404): this plan has no such step");
+      },
+    });
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    click(editRow(3));
+    const input = rows()[2]!.querySelector<HTMLInputElement>(".fy-mem-ttitle")!;
+    await typeIn(input, "Add the settings toggle behind a flag");
+    click(button("Save"));
+    await settle();
+
+    expect(text()).toContain("this plan has been rewritten");
+    // The typed words survive the failure — they are the only copy.
+    expect(
+      host.querySelector<HTMLInputElement>(".fy-mem-ttitle")!.value,
+    ).toBe("Add the settings toggle behind a flag");
+    expect(button("Reload")).not.toBeUndefined();
+  });
+
+  it("refuses what the Core would refuse, without throwing the text away", async () => {
+    const { source, calls } = memSource(memDoc({ plan: memPlan }));
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    click(editRow(3));
+    const note = host.querySelector<HTMLTextAreaElement>(".fy-mem-enote")!;
+    await typeIn(note, "n".repeat(MEMORY_LIMITS.stepNote + 1));
+    expect(text()).toContain("Over the limit of 500 bytes");
+    expect(button("Save")?.disabled).toBe(true);
+
+    const title = host.querySelector<HTMLInputElement>(".fy-mem-ttitle")!;
+    await typeIn(note, "still blocked");
+    await typeIn(title, "   ");
+    // A step with no title is a row nothing on screen could name.
+    expect(button("Save")?.disabled).toBe(true);
+    expect(calls.steps).toEqual([]);
+  });
+
+  it("writes nothing when nothing was changed", async () => {
+    const { source, calls } = memSource(memDoc({ plan: memPlan }));
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    click(editRow(1));
+    click(button("Save"));
+    await settle();
+    expect(calls.steps).toEqual([]);
+    expect(host.querySelector(".fy-mem-editpanel")).toBeNull();
+  });
+});
+
+describe("memory plan (Fylane-V3 board 22)", () => {
+  it("marks the step in flight and counts what is done", async () => {
+    const { source } = memSource(memDoc({ plan: memPlan }));
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    expect(text()).toContain("1 of 4 done");
+    expect(text()).toContain("1 in flight");
+    expect(text()).toContain("1 blocked");
+
+    const steps = document.querySelectorAll(".fy-mem-step");
+    expect(steps.length).toBe(4);
+    expect(steps[1]?.getAttribute("data-state")).toBe("doing");
+    expect(steps[2]?.getAttribute("data-state")).toBe("blocked");
+
+    // The dot is decorative, so the state has to reach the screen as a word
+    // as well as a colour — four states, three status colours, and nobody
+    // reading this should have to tell them apart by hue.
+    expect(text()).toContain("In flight");
+    expect(text()).toContain("Blocked");
+    // Why a step is blocked is the one thing a person needs to unblock it.
+    expect(text()).toContain("No design board for that cell yet.");
+  });
+
+  it("keeps a folder whose only memory is a plan out of the empty state", async () => {
+    const { source } = memSource({
+      state: null,
+      notes: [],
+      plan: [memPlan[1]!],
+      live: 0,
+      archived: 0,
+    });
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+    // The AI writes the plan before there is anything to write a note
+    // about; "nothing is remembered yet" would be wrong here.
+    expect(text()).toContain("Delete the poller and run the tests");
+  });
+
+  it("draws no plan section when there is no plan", async () => {
+    const { source } = memSource(memDoc());
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+    expect(document.querySelectorAll(".fy-mem-step").length).toBe(0);
+    expect(text()).not.toContain("PLAN");
+  });
+});
 
 describe("memory screen", () => {
   it("draws the page as five cells and the trail as one line per note", async () => {
@@ -3898,5 +4108,124 @@ describe("memory screen", () => {
     await settle();
     expect(text()).toContain("Fylane on HK is older than this page.");
     expect(button("Retry")).toBeUndefined();
+  });
+});
+
+
+// The plan is written from two places at once: the conversation moves a step
+// while the window is open on the same folder. Until 2026-09-16 the page only
+// read it on mount, so the AI's move showed up when you left the page and came
+// back — which is exactly when you are no longer looking.
+describe("memory plan · the conversation moves a step while the page is open", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const steps = () => Array.from(document.querySelectorAll(".fy-mem-step"));
+  const beat = async () => {
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  it("picks up a step the AI moved, without leaving the page", async () => {
+    const doc = memDoc({ plan: memPlan });
+    const { source } = memSource(doc);
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+    expect(steps()[1]?.getAttribute("data-state")).toBe("doing");
+
+    doc.plan = (doc.plan ?? []).map((s) => (s.id === 2 ? { ...s, state: "done" as const } : s));
+    await beat();
+
+    expect(steps()[1]?.getAttribute("data-state")).toBe("done");
+  });
+
+  it("refreshes the plan and nothing else", async () => {
+    const doc = memDoc({ plan: memPlan });
+    const { source } = memSource(doc);
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    // Both halves change underneath. Only the plan may land: the notes on
+    // screen are a list the reader may have paged through with "more", and
+    // replacing it would throw those pages away under their hands.
+    doc.plan = (doc.plan ?? []).map((s) => (s.id === 3 ? { ...s, title: "Ship the toggle" } : s));
+    doc.notes = [
+      ...doc.notes,
+      {
+        id: 99,
+        workspace_id: "ws_1",
+        title: "A note that arrived in the background",
+        body: "",
+        created_at: MEM_NOW.toISOString(),
+      },
+    ];
+    await beat();
+
+    expect(text()).toContain("Ship the toggle");
+    expect(text()).not.toContain("A note that arrived in the background");
+  });
+
+  it("never pulls a row out from under the typing", async () => {
+    const doc = memDoc({ plan: memPlan });
+    const { source, calls } = memSource(doc);
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    click(host.querySelector<HTMLButtonElement>('[aria-label="Edit step 3"]')!);
+    const input = steps()[2]?.querySelector<HTMLInputElement>(".fy-mem-ttitle");
+    await act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input!,
+        "Add the settings toggle behind a flag",
+      );
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const before = calls.fetch.length;
+    doc.plan = [{ ...memPlan[0]!, id: 91, title: "A plan written somewhere else" }];
+    await beat();
+
+    // The beat is held: no read went out, the row is still open, and the
+    // typed text is still the only copy of what was typed.
+    expect(calls.fetch.length).toBe(before);
+    expect(steps()[2]?.querySelector<HTMLInputElement>(".fy-mem-ttitle")?.value).toBe(
+      "Add the settings toggle behind a flag",
+    );
+    expect(text()).not.toContain("A plan written somewhere else");
+  });
+});
+
+// The state page has said "you" for a hand-made change since board 17. The
+// plan row, added in U-T5, went through displayWho() instead — which knows
+// the four platforms by name and title-cases everything else, and takes no
+// translator, so it can only ever answer "User". Same screen, same idea, two
+// words, and in Chinese one of them is not even the language.
+describe("memory plan · a change the reader made says so in their words", () => {
+  const rows = () => Array.from(document.querySelectorAll(".fy-mem-step"));
+  const meta = (n: number) => rows()[n]?.querySelector(".fy-mem-smeta")?.textContent ?? "";
+
+  it("names the reader, not the raw word the Core stores", async () => {
+    const mine = memPlan.map((s) => (s.id === 3 ? { ...s, provider: "user" } : s));
+    const { source } = memSource(memDoc({ plan: mine }));
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    expect(meta(2)).toContain("You");
+    expect(meta(2)).not.toContain("User");
+  });
+
+  it("still names a platform by its own name", async () => {
+    const { source } = memSource(memDoc({ plan: memPlan }));
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+
+    expect(meta(0)).toContain("ChatGPT");
   });
 });

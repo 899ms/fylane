@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { POLL_MS } from "../lib/poll";
 import type {
   ChangeSet,
   MemoryDoc,
   MemoryNote,
   MemoryPage,
   MemorySource,
+  MemoryStep,
+  StepPatch,
+  StepState,
   TaskInfo,
   Workspace,
 } from "../lib/core";
+import { MEMORY_LIMITS } from "../lib/core";
 import { clock, displayWho } from "../lib/lane";
 import {
   agoShort,
@@ -17,6 +22,7 @@ import {
   startedAt,
 } from "../lib/records";
 import {
+  byteLength,
   fieldCount,
   fieldItems,
   fieldLimit,
@@ -28,6 +34,7 @@ import {
   noteWhen,
   pageEmpty,
   PROSE_FIELDS,
+  stepGone,
   withField,
   type PageField,
 } from "../lib/memory";
@@ -80,6 +87,8 @@ export function MemoryScreen({
   const { t } = tr;
   const wsID = workspace?.id ?? "";
   const [doc, setDoc] = useState<MemoryDoc | null>(null);
+  // A step open for editing freezes the background read below.
+  const [editingStep, setEditingStep] = useState(false);
   // "old" is a remote Core from before this page existed: its proxy answers
   // 404 to the memory endpoint, which is a reason, not a failure to retry.
   const [failed, setFailed] = useState<false | "read" | "old">(false);
@@ -126,6 +135,35 @@ export function MemoryScreen({
     void load();
   }, [load]);
 
+  // The plan is the one part of this page somebody else writes while it is
+  // open: the AI moves a step from the conversation, and until now the only
+  // way to see that was to leave the page and come back. It follows the
+  // window's own beat, and it refreshes the plan alone — replacing the notes
+  // would throw away the pages a reader opened with "more".
+  //
+  // Nothing lands while a row is being edited. The typed text is the only
+  // copy, and a step that disappeared under it (a plan rewritten elsewhere)
+  // would take that text with it; that case is answered at save time, in the
+  // row, with the words board 23 gives it.
+  useEffect(() => {
+    if (!wsID || editingStep) return;
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const next = await source.fetch(wsID, {
+            archived: filter === "archived",
+            query: query || undefined,
+          });
+          setDoc((d) => (d ? { ...d, plan: next.plan ?? [] } : d));
+        } catch {
+          // A background read that fails changes nothing on screen: the next
+          // beat tries again, and a read the user asked for reports itself.
+        }
+      })();
+    }, POLL_MS);
+    return () => window.clearInterval(id);
+  }, [wsID, editingStep, source, filter, query]);
+
   const act = useCallback(
     async (fn: () => Promise<void>) => {
       try {
@@ -170,6 +208,14 @@ export function MemoryScreen({
     }
   };
 
+  // A failed step save is reported inside the row that failed (board 23),
+  // not on the window's error rail: the typed text is still on screen there,
+  // and the only useful next step — reload — is beside it.
+  const saveStep = async (id: number, patch: StepPatch) => {
+    await source.saveStep(wsID, id, patch);
+    await load();
+  };
+
   const savePage = (field: PageField, text: string) =>
     act(async () => {
       const page: MemoryPage = withField(doc?.state?.page ?? {}, field, text);
@@ -192,8 +238,15 @@ export function MemoryScreen({
   }
 
   const page = doc?.state?.page ?? {};
+  // A plan counts as something remembered: the AI writes it before there is
+  // anything to write a note about, so a folder whose only memory is a plan
+  // must show that plan rather than "nothing is remembered yet".
   const nothing =
-    doc !== null && !doc.state && doc.live + doc.archived === 0 && !query;
+    doc !== null &&
+    !doc.state &&
+    doc.live + doc.archived === 0 &&
+    (doc.plan ?? []).length === 0 &&
+    !query;
   const total = (doc?.live ?? 0) + (doc?.archived ?? 0);
 
   return (
@@ -308,6 +361,15 @@ export function MemoryScreen({
             </div>
           )}
 
+          <Plan
+            steps={doc.plan ?? []}
+            now={now}
+            tr={tr}
+            onSave={saveStep}
+            onReload={() => void load()}
+            onEditing={setEditingStep}
+          />
+
           <Feed
             doc={doc}
             filter={filter}
@@ -335,6 +397,249 @@ export function MemoryScreen({
           onClose={() => setSheet(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** The four states a step can be in, in the user's words. The set is closed
+ *  on the Core's side, so a value outside it would be a Core the screen does
+ *  not understand; it reads as "not started" rather than as a raw key. */
+const STEP_STATE = {
+  todo: "memory.stepTodo",
+  doing: "memory.stepDoing",
+  blocked: "memory.stepBlocked",
+  done: "memory.stepDone",
+} as const;
+
+/** The plan (board 22): the steps the AI is working through in this folder,
+ *  one line each. It writes the plan whole and moves one step at a time;
+ *  this screen only reads it. The step in flight is the loudest line in the
+ *  section on purpose — it is where a conversation that was cut off has to
+ *  be picked up, which is the whole reason the plan exists. */
+const STEP_CHOICES: StepState[] = ["todo", "doing", "blocked", "done"];
+
+function Plan({
+  steps,
+  now,
+  tr,
+  onSave,
+  onReload,
+  onEditing,
+}: {
+  steps: MemoryStep[];
+  now: Date;
+  tr: Translator;
+  onSave: (id: number, patch: StepPatch) => Promise<void>;
+  onReload: () => void;
+  onEditing: (open: boolean) => void;
+}) {
+  const { t } = tr;
+  const [editing, setEditing] = useState<number | null>(null);
+  const [title, setTitle] = useState("");
+  const [state, setState] = useState<StepState>("todo");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState<null | "gone" | "other">(null);
+
+  // Derived rather than reported at each call site: every way a row closes —
+  // saved, cancelled, gone — has to reach the screen, and one of them being
+  // forgotten would leave the page frozen with no row open.
+  useEffect(() => {
+    onEditing(editing !== null);
+  }, [editing, onEditing]);
+
+  const edit = (step: MemoryStep) => {
+    setEditing(step.id);
+    setTitle(step.title);
+    setState(step.state);
+    setNote(step.note ?? "");
+    setFailed(null);
+  };
+
+  // The note grows with what is typed into it rather than scrolling inside
+  // one line: a step's "why" is a sentence, and a sentence you cannot see
+  // the end of is one you cannot check.
+  const grow = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  const titleBytes = byteLength(title);
+  const noteBytes = byteLength(note);
+  const over = titleBytes > MEMORY_LIMITS.stepTitle ? MEMORY_LIMITS.stepTitle : noteBytes > MEMORY_LIMITS.stepNote ? MEMORY_LIMITS.stepNote : 0;
+  const canSave = title.trim() !== "" && over === 0 && !saving;
+
+  const save = async (step: MemoryStep) => {
+    setSaving(true);
+    setFailed(null);
+    try {
+      // Only what actually changed is sent: a field left out is left alone,
+      // so saving a step nobody edited must not stamp the user's name on it.
+      const patch: StepPatch = {};
+      if (title !== step.title) patch.title = title;
+      if (state !== step.state) patch.state = state;
+      if (note !== (step.note ?? "")) patch.note = note;
+      if (Object.keys(patch).length > 0) await onSave(step.id, patch);
+      setEditing(null);
+    } catch (err) {
+      setFailed(stepGone(err) ? "gone" : "other");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (steps.length === 0) return null;
+  let done = 0;
+  let doing = 0;
+  let blocked = 0;
+  for (const s of steps) {
+    if (s.state === "done") done++;
+    else if (s.state === "doing") doing++;
+    else if (s.state === "blocked") blocked++;
+  }
+  const counts = [t("memory.planCount", { done, n: steps.length })];
+  if (doing > 0) counts.push(t("memory.planDoing", { n: doing }));
+  if (blocked > 0) counts.push(t("memory.planBlocked", { n: blocked }));
+  return (
+    <div className="fy-mem-plan">
+      <div className="fy-grouphead fy-mem-grouphead">
+        <span>{t("memory.planHead")}</span>
+        <i />
+        <span>{counts.join(" · ")}</span>
+      </div>
+      <div className="fy-mem-steps">
+        {steps.map((step, i) => {
+          const open = editing === step.id;
+          return (
+            <div
+              key={step.id}
+              className={open ? "fy-mem-step fy-mem-editing" : "fy-mem-step"}
+              // While it is open the row shows the state being chosen, so
+              // the dot at the head of the row answers the four words below
+              // it. That correspondence teaches itself; a legend would not.
+              data-state={open ? state : step.state}
+            >
+              <div className="fy-mem-shead">
+                <span className="fy-mem-num">{i + 1}</span>
+                <span className="fy-mem-sdot" aria-hidden="true" />
+                <span className="fy-mem-stitle" title={step.title}>
+                  {step.title}
+                </span>
+                {open && (
+                  <input
+                    className="fy-mem-ttitle"
+                    value={title}
+                    aria-label={t("memory.stepTitleLabel")}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                )}
+                <span className="fy-mem-smeta">
+                  {t(STEP_STATE[step.state] ?? "memory.stepTodo")}
+                  <span className="fy-mem-sep">·</span>
+                  {/* The page above says "you" for a change the reader made;
+                      a step has to say it the same way, in the same words. */}
+                  {step.provider === "user" ? t("memory.you") : displayWho(step.provider ?? "")}{" "}
+                  {noteWhen(step.updated_at, now, tr)}
+                </span>
+                {/* The word is the same on every row, so the row it belongs
+                    to has to be in its name: seven buttons all called "Edit"
+                    tell a screen reader nothing. */}
+                <button
+                  type="button"
+                  className="fy-mem-sedit"
+                  aria-label={t("memory.stepEditOne", { n: i + 1 })}
+                  onClick={() => edit(step)}
+                >
+                  {t("memory.edit")}
+                </button>
+              </div>
+              {open ? (
+                <div className="fy-mem-editpanel">
+                  <div className="fy-mem-choices">
+                    {STEP_CHOICES.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className="fy-mem-choice"
+                        aria-pressed={state === s}
+                        onClick={() => setState(s)}
+                      >
+                        {t(STEP_STATE[s])}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    className="fy-mem-enote"
+                    rows={1}
+                    ref={grow}
+                    placeholder={t("memory.stepNoteHint")}
+                    value={note}
+                    onChange={(e) => {
+                      setNote(e.target.value);
+                      grow(e.target);
+                    }}
+                  />
+                  <div className="fy-mem-editfoot">
+                    {/* Whatever is wrong takes the counter's place on the
+                        same line, so nothing moves and nothing typed is
+                        lost. */}
+                    {failed ? (
+                      <span className="fy-mem-failed">
+                        <span>
+                          {t(failed === "gone" ? "memory.stepGone" : "memory.stepSaveFailed")}
+                        </span>
+                        {failed === "gone" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditing(null);
+                              onReload();
+                            }}
+                          >
+                            {t("memory.stepReload")}
+                          </button>
+                        )}
+                      </span>
+                    ) : over > 0 ? (
+                      <span className="fy-mem-failed">
+                        <span>{t("memory.tooLong", { n: over })}</span>
+                      </span>
+                    ) : (
+                      <span className="fy-mem-count">
+                        {noteBytes} / {MEMORY_LIMITS.stepNote}
+                      </span>
+                    )}
+                    <span className="fy-mem-sp" />
+                    <button
+                      type="button"
+                      className="fy-mem-quiet"
+                      onClick={() => setEditing(null)}
+                    >
+                      {t("memory.cancel")}
+                    </button>
+                    <button
+                      type="button"
+                      className="fy-mem-save"
+                      data-busy={saving ? "true" : "false"}
+                      disabled={!canSave}
+                      onClick={() => void save(step)}
+                    >
+                      {saving && (
+                        <Jelly size={20} color="var(--fy-bg)" busyLabel={t("memory.save")} />
+                      )}
+                      <span>{t("memory.save")}</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                step.note && <div className="fy-mem-why">{step.note}</div>
+              )}
+              <div className="fy-mem-srule" />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

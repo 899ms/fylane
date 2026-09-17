@@ -3308,12 +3308,18 @@ a {
   padding-left: 16px;
   border-left: 1px solid var(--fy-rule2);
 }
+/* Board 17 revision (2026-09-16, approved with board 22). The label used to
+   be 12.5/500/ink over 12.5/400/ink2 body — one grey and one weight apart,
+   so neither stood out. The label now retreats to a quiet 11px mark that
+   reads as one line of metadata with the byte count beside it, and the body
+   carries the cell. Both ends use values the system already has. */
 .fy-mem-cell-title {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font: 500 12.5px/1.4 var(--fy-sans);
-  color: var(--fy-ink);
+  font: 500 11px/1.4 var(--fy-sans);
+  letter-spacing: 0.06em;
+  color: var(--fy-faint);
 }
 .fy-mem-cell-title span {
   flex: 1;
@@ -3326,7 +3332,8 @@ a {
 }
 .fy-mem-clamp {
   position: relative;
-  max-height: calc(1.55em * 3);
+  /* Three lines of the body, so it tracks the body's line-height. */
+  max-height: calc(1.6em * 3);
   overflow: hidden;
 }
 .fy-mem-clamp::after {
@@ -3343,8 +3350,8 @@ a {
   display: none;
 }
 .fy-mem-cell p {
-  margin: 0;
-  font: 400 12.5px/1.55 var(--fy-sans);
+  margin: 2px 0 0;
+  font: 400 13.5px/1.6 var(--fy-sans);
   color: var(--fy-ink2);
   max-width: 60ch;
   white-space: pre-line;
@@ -3360,7 +3367,7 @@ a {
 .fy-mem-list li {
   display: flex;
   gap: 8px;
-  font: 400 12.5px/1.55 var(--fy-sans);
+  font: 400 13.5px/1.6 var(--fy-sans);
   color: var(--fy-ink2);
 }
 .fy-mem-list li::before {
@@ -3398,6 +3405,356 @@ a {
 .fy-mem-more:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+/* The plan (board 22). One line per step on the feed's rhythm: a 44px
+   number column, the dot, the title, the state at the right margin.
+
+   Four states, and the system has three status colours — so none is added.
+   Every mark here already exists on this page: done is the feed's applied
+   sage dot, blocked the state page's amber open-question ring, todo the
+   hairline ring, and the step in flight is the ink dot plus the 4.5% shade
+   and 500 weight this page already uses for "this row is the live one".
+
+   Motion borrows the system's cadences rather than inventing any: 40ms per
+   line on entry (the approval scene's stagger), 420ms to cross-fade a dot
+   when a step changes state (the approve animation), and one full Jelly
+   round, 1.6s, for the live step's breath. Nothing moves position and
+   nothing flashes; the breath is the only thing that repeats, and it stops
+   for anyone who asked for less motion. */
+.fy-mem-plan {
+  flex: none;
+}
+.fy-mem-step {
+  margin: 0 -8px;
+  padding: 0 12px 0 8px;
+  border-radius: 6px;
+  transition: background 0.14s ease-out;
+  animation: fy-stepin 0.2s ease-out backwards;
+}
+.fy-mem-step:nth-child(1) {
+  animation-delay: 0ms;
+}
+.fy-mem-step:nth-child(2) {
+  animation-delay: 40ms;
+}
+.fy-mem-step:nth-child(3) {
+  animation-delay: 80ms;
+}
+.fy-mem-step:nth-child(4) {
+  animation-delay: 120ms;
+}
+.fy-mem-step:nth-child(5) {
+  animation-delay: 160ms;
+}
+.fy-mem-step:nth-child(6) {
+  animation-delay: 200ms;
+}
+.fy-mem-step:nth-child(7) {
+  animation-delay: 240ms;
+}
+.fy-mem-step:nth-child(n + 8) {
+  animation-delay: 280ms;
+}
+.fy-mem-step:hover {
+  background: var(--fy-tint);
+}
+.fy-mem-step[data-state="doing"] {
+  background: var(--fy-surf);
+}
+.fy-mem-shead {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+}
+.fy-mem-num {
+  flex: none;
+  width: 44px;
+  font: 400 11.5px/1.4 var(--fy-mono);
+  color: var(--fy-faint);
+  font-variant-numeric: tabular-nums;
+}
+.fy-mem-sdot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 4px;
+  transform: translateY(-2px);
+  background: transparent;
+  transition:
+    background 0.42s ease,
+    box-shadow 0.42s ease;
+}
+.fy-mem-step[data-state="done"] .fy-mem-sdot {
+  background: var(--fy-sage);
+}
+.fy-mem-step[data-state="todo"] .fy-mem-sdot {
+  box-shadow: inset 0 0 0 1.5px var(--fy-rule);
+}
+.fy-mem-step[data-state="blocked"] .fy-mem-sdot {
+  box-shadow: inset 0 0 0 1.5px var(--fy-amber);
+}
+.fy-mem-step[data-state="doing"] .fy-mem-sdot {
+  background: var(--fy-ink);
+  animation: fy-breathe 1.6s ease-in-out infinite;
+}
+@keyframes fy-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes fy-stepin {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fy-mem-stitle {
+  flex: 1;
+  min-width: 0;
+  font: 400 13.5px/1.45 var(--fy-sans);
+  color: var(--fy-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fy-mem-step[data-state="doing"] .fy-mem-stitle {
+  font-weight: 500;
+}
+.fy-mem-step[data-state="done"] .fy-mem-stitle {
+  color: var(--fy-muted);
+}
+.fy-mem-smeta {
+  flex: none;
+  width: 200px;
+  text-align: right;
+  font: 400 11.5px/1.4 var(--fy-sans);
+  color: var(--fy-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Why a step is blocked hangs off the title, not the dot: 44 + 12 + 6 + 12.
+   It is one more line of the step above it, so it starts where that step's
+   words start. The notes feed puts its body at 62px instead, because there
+   the body is a block under a whole row. */
+.fy-mem-why {
+  padding: 0 0 8px 74px;
+  margin-top: -2px;
+  font: 400 12.5px/1.55 var(--fy-sans);
+  color: var(--fy-muted);
+  max-width: 60ch;
+  white-space: pre-line;
+}
+.fy-mem-srule {
+  height: 1px;
+  background: var(--fy-rule2);
+  margin-left: 62px;
+}
+.fy-mem-step:hover .fy-mem-srule,
+.fy-mem-step[data-state="doing"] .fy-mem-srule {
+  background: transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fy-mem-step,
+  .fy-mem-step .fy-mem-sdot {
+    animation: none;
+  }
+}
+
+/* Changing one step (board 23). The row stays the row: the title is edited
+   where the title already is — same column, same 13.5px, same left edge — so
+   entering edit mode moves nothing and adds no header. Under it, at the
+   title's own indent, come the only two other things a step has: which state
+   it is in, and the one line of why. No field labels: four state words label
+   themselves, and the note says what it is in its placeholder.
+
+   At rest every line here is a hairline. The ink line — the heaviest rule
+   this page owns — appears only under the field being typed in, so the block
+   has exactly one loud thing at a time, and it is wherever the caret is. */
+.fy-mem-sedit {
+  flex: none;
+  margin-left: 12px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font: 400 11.5px var(--fy-sans);
+  color: var(--fy-faint);
+  border-bottom: 1px solid transparent;
+  visibility: hidden;
+}
+.fy-mem-step:hover .fy-mem-sedit,
+.fy-mem-sedit:focus-visible {
+  visibility: visible;
+}
+.fy-mem-sedit:hover {
+  color: var(--fy-ink);
+  border-bottom-color: var(--fy-rule);
+}
+.fy-mem-step.fy-mem-editing {
+  background: var(--fy-surf);
+}
+.fy-mem-step.fy-mem-editing .fy-mem-stitle,
+.fy-mem-step.fy-mem-editing .fy-mem-smeta,
+.fy-mem-step.fy-mem-editing .fy-mem-sedit,
+.fy-mem-step.fy-mem-editing .fy-mem-why {
+  display: none;
+}
+.fy-mem-step.fy-mem-editing .fy-mem-srule {
+  background: transparent;
+}
+.fy-mem-ttitle {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--fy-rule);
+  background: transparent;
+  font: 400 13.5px/1.45 var(--fy-sans);
+  color: var(--fy-ink);
+  padding: 0 0 3px;
+  outline: none;
+}
+.fy-mem-ttitle:focus,
+.fy-mem-enote:focus {
+  border-bottom-color: var(--fy-ink);
+}
+.fy-mem-editpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 0 10px 74px;
+  max-width: 62ch;
+}
+.fy-mem-choices {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.fy-mem-choice {
+  border: 0;
+  background: transparent;
+  padding: 0 0 2px;
+  cursor: pointer;
+  border-bottom: 1.5px solid transparent;
+  font: 400 12.5px/1.4 var(--fy-sans);
+  color: var(--fy-muted);
+}
+.fy-mem-choice:hover {
+  color: var(--fy-ink);
+}
+.fy-mem-choice[aria-pressed="true"] {
+  font-weight: 500;
+  color: var(--fy-ink);
+  border-bottom-color: var(--fy-ink);
+}
+.fy-mem-enote {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 1px solid var(--fy-rule);
+  background: transparent;
+  font: 400 12.5px/1.6 var(--fy-sans);
+  color: var(--fy-ink2);
+  padding: 0 0 4px;
+  outline: none;
+  resize: none;
+  min-height: 21px;
+  overflow: hidden;
+}
+.fy-mem-enote::placeholder {
+  color: var(--fy-faint);
+}
+.fy-mem-editfoot {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-top: 2px;
+}
+.fy-mem-editfoot .fy-mem-sp {
+  flex: 1;
+}
+.fy-mem-count {
+  font: 400 10.5px/1.4 var(--fy-mono);
+  color: var(--fy-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* Failure takes the count's place in the same footer line, so nothing on
+   screen moves and the typed text is never thrown away. brick is this app's
+   "this went wrong" token, not a fifth step state, and it never touches a
+   dot. */
+.fy-mem-failed {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font: 400 11.5px/1.4 var(--fy-sans);
+  color: var(--fy-brick);
+}
+.fy-mem-failed button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--fy-brick);
+  border-bottom: 1px solid var(--fy-brick);
+}
+.fy-mem-quiet {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font: 400 11.5px var(--fy-sans);
+  color: var(--fy-faint);
+  border-bottom: 1px solid transparent;
+}
+.fy-mem-quiet:hover {
+  color: var(--fy-ink);
+  border-bottom-color: var(--fy-rule);
+}
+/* The one filled surface in this block, and the only main action. It is not
+   .fy-primary: that one is a page-level button at 42px, which in a row's
+   footer would outweigh the row it belongs to. */
+.fy-mem-save {
+  position: relative;
+  border: 0;
+  background: var(--fy-ink);
+  color: var(--fy-bg);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font: 500 12px/1.4 var(--fy-sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+}
+.fy-mem-save:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+/* Saving: the app's own Jelly at its smallest takes the label's place, the
+   same way a filled button waits everywhere else in the app. Nothing else is
+   disabled — one step is one write; it lands or it does not. */
+.fy-mem-save > .fy-jelly {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.fy-mem-save[data-busy="true"] > span:not(.fy-jelly) {
+  opacity: 0;
+  transition: opacity 0.13s ease-out;
 }
 
 /* Feed. One line per note at rest: time | dot | title | source · link |

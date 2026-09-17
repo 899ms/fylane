@@ -8,6 +8,7 @@ import type {
   MemoryDoc,
   MemoryNote,
   MemorySource,
+  MemoryStep,
   PrefsInfo,
   RemoteEntry,
   RemoteListing,
@@ -690,6 +691,68 @@ export const MEMORY_NOTES: MemoryNote[] = [
   },
 ];
 
+// The plan (board 22): three done, one in flight, one blocked, two waiting —
+// every state on screen at once, which is what the board is for.
+export const MEMORY_PLAN: MemoryStep[] = [
+  {
+    id: 1,
+    position: 1,
+    title: "Read the connection layer in internal/imap and find where IDLE hangs off",
+    state: "done",
+    provider: "chatgpt",
+    updated_at: ago(30),
+  },
+  {
+    id: 2,
+    position: 2,
+    title: "Write the IDLE connection layer with exponential reconnect backoff",
+    state: "done",
+    provider: "chatgpt",
+    updated_at: ago(26),
+  },
+  {
+    id: 3,
+    position: 3,
+    title: "Run Gmail and Fastmail real accounts for 30 minutes each",
+    state: "done",
+    provider: "claude",
+    updated_at: ago(3),
+  },
+  {
+    id: 4,
+    position: 4,
+    title: "Delete internal/poll and run go test ./...",
+    state: "doing",
+    provider: "chatgpt",
+    updated_at: ago(1),
+  },
+  {
+    id: 5,
+    position: 5,
+    title: "Add the realtime / every-5-minutes toggle to settings",
+    state: "blocked",
+    note: "There is no design board for that settings cell yet, and styles are not invented here.",
+    provider: "claude",
+    updated_at: ago(5),
+  },
+  {
+    id: 6,
+    position: 6,
+    title: "Update CHANGELOG and the sync section of the README",
+    state: "todo",
+    provider: "chatgpt",
+    updated_at: ago(30),
+  },
+  {
+    id: 7,
+    position: 7,
+    title: "Run the first sync after upgrading on two real machines",
+    state: "todo",
+    provider: "chatgpt",
+    updated_at: ago(30),
+  },
+];
+
 export const MEMORY_DOC: MemoryDoc = {
   state: {
     workspace_id: "ws_1",
@@ -714,11 +777,18 @@ export const MEMORY_DOC: MemoryDoc = {
     },
   },
   notes: MEMORY_NOTES,
+  plan: MEMORY_PLAN,
   live: 7,
   archived: 40,
 };
 
-export const MEMORY_EMPTY: MemoryDoc = { state: null, notes: [], live: 0, archived: 0 };
+export const MEMORY_EMPTY: MemoryDoc = {
+  state: null,
+  notes: [],
+  plan: [],
+  live: 0,
+  archived: 0,
+};
 
 /** A source that answers from a fixture and never changes it. */
 export function memorySource(doc: MemoryDoc): MemorySource {
@@ -737,6 +807,7 @@ export function memorySource(doc: MemoryDoc): MemorySource {
       provider: "user",
       updated_at: NOW.toISOString(),
     }),
+    saveStep: async () => doc.plan ?? [],
     deleteNote: async () => {},
     clear: async () => {},
     export: async () => "",

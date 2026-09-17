@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { translatorFor } from "./i18n";
-import type { MemoryNote } from "./core";
+import { memoryDoc } from "./core";
+import type { MemoryNote, MemoryStep } from "./core";
 import {
   byteLength,
   draftProblem,
@@ -81,5 +82,35 @@ describe("memory rows", () => {
     const { recent, earlier } = groupNotes([today, yesterday, older], NOW);
     expect(recent.map((n) => n.id)).toEqual([3, 2]);
     expect(earlier.map((n) => n.id)).toEqual([1]);
+  });
+});
+
+
+describe("the memory answer keeps every part of memory", () => {
+  const step: MemoryStep = {
+    id: 7,
+    position: 1,
+    title: "read the auth middleware",
+    state: "doing",
+    updated_at: NOW.toISOString(),
+  };
+
+  it("carries the plan through", () => {
+    expect(memoryDoc({ plan: [step], live: 1 }).plan).toEqual([step]);
+  });
+
+  it("fills in what an older Core does not send", () => {
+    const doc = memoryDoc({});
+    expect(doc.plan).toEqual([]);
+    expect(doc.notes).toEqual([]);
+    expect(doc.state).toBeNull();
+    expect(doc.live).toBe(0);
+    expect(doc.archived).toBe(0);
+    expect(doc.next_before_id).toBeUndefined();
+  });
+
+  it("answers an empty document rather than throwing on nothing at all", () => {
+    expect(memoryDoc(null).plan).toEqual([]);
+    expect(memoryDoc(undefined).notes).toEqual([]);
   });
 });

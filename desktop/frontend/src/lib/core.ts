@@ -13,6 +13,7 @@ import {
   ExportMemory,
   Memory,
   SaveMemoryPage,
+  SaveMemoryPlanStep,
   CommandSettings,
   Connect,
   CopyText,
@@ -829,6 +830,8 @@ export const MEMORY_LIMITS = {
   next: 800,
   listItems: 8,
   listItem: 200,
+  stepTitle: 200,
+  stepNote: 500,
 } as const;
 
 export type MemoryPage = {
@@ -859,14 +862,59 @@ export type MemoryNote = {
   created_at: string;
 };
 
+/** One step of the plan the workspace is working through. The AI writes the
+ *  plan whole and moves one step at a time; the desktop may change the half
+ *  that leaves the id where it is — state, title, note (D40). */
+export type MemoryStep = {
+  id: number;
+  position: number;
+  title: string;
+  state: StepState;
+  /** Why it is blocked, or what it turned out to involve. */
+  note?: string;
+  /** Who last moved it: a platform, or "user". */
+  provider?: string;
+  updated_at: string;
+};
+
+export type StepState = "todo" | "doing" | "blocked" | "done";
+
+/** What one hand-made change to a step may carry. Absent means "leave this
+ *  alone"; an empty string means "clear it". */
+export type StepPatch = {
+  state?: StepState;
+  title?: string;
+  note?: string;
+};
+
 export type MemoryDoc = {
   state: MemoryState | null;
   notes: MemoryNote[];
+  /** The whole plan, in order; short by construction, never paged. */
+  plan?: MemoryStep[];
   live: number;
   archived: number;
   /** Continues the listing; absent on the last page. */
   next_before_id?: number;
 };
+
+/** The memory answer as it arrives, before defaults. Every field is optional
+ *  because a Core older than this build sends fewer of them, and `plan` is the
+ *  newest of them. It is its own exported function because this field list is
+ *  where a part of memory can go missing in silence: `plan` was stored by the
+ *  Core, typed above and drawn by board 22, yet never copied here — the plan
+ *  section was empty on every machine while the tests stayed green, because
+ *  the fixtures build a MemoryDoc directly and never cross this seam. */
+export function memoryDoc(res: Partial<MemoryDoc> | null | undefined): MemoryDoc {
+  return {
+    state: res?.state ?? null,
+    notes: res?.notes ?? [],
+    plan: res?.plan ?? [],
+    live: res?.live ?? 0,
+    archived: res?.archived ?? 0,
+    next_before_id: res?.next_before_id,
+  };
+}
 
 export type MemoryQuery = {
   archived: boolean;
@@ -880,6 +928,9 @@ export type MemoryQuery = {
 export interface MemorySource {
   fetch(workspaceID: string, q: MemoryQuery): Promise<MemoryDoc>;
   savePage(workspaceID: string, page: MemoryPage): Promise<MemoryState>;
+  /** Changes one step and answers with the whole plan. A field left out of
+   *  the patch is left alone; an empty string clears it. */
+  saveStep(workspaceID: string, id: number, patch: StepPatch): Promise<MemoryStep[]>;
   deleteNote(workspaceID: string, id: number): Promise<void>;
   clear(workspaceID: string): Promise<void>;
   /** The saved file's path, or "" when the dialog was cancelled. */
@@ -892,16 +943,12 @@ export function memorySource(machineID: string): MemorySource {
       const res = JSON.parse(
         await Memory(machineID, workspaceID, q.archived, q.before ?? 0, q.query ?? ""),
       );
-      return {
-        state: res.state ?? null,
-        notes: res.notes ?? [],
-        live: res.live ?? 0,
-        archived: res.archived ?? 0,
-        next_before_id: res.next_before_id,
-      };
+      return memoryDoc(res);
     },
     savePage: async (workspaceID, page) =>
       JSON.parse(await SaveMemoryPage(machineID, workspaceID, JSON.stringify(page))),
+    saveStep: async (workspaceID, id, patch) =>
+      JSON.parse(await SaveMemoryPlanStep(machineID, workspaceID, id, JSON.stringify(patch))),
     deleteNote: async (workspaceID, id) => {
       await DeleteMemoryNote(machineID, workspaceID, id);
     },

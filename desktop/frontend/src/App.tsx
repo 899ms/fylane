@@ -41,7 +41,7 @@ import {
   WindowToggleMaximise,
 } from "../wailsjs/runtime/runtime";
 import { runFirstWrite } from "./lib/firstwrite";
-import { pollCore, type MachineView } from "./lib/poll";
+import { pollCore, POLL_MS, type MachineView } from "./lib/poll";
 import { detectOS } from "./lib/platform";
 import { OFFLINE_SNAPSHOT, type LaneSnapshot } from "./lib/lane";
 import { canRollback } from "./lib/records";
@@ -88,7 +88,6 @@ const NAV: { key: Screen; label: Key }[] = [
 /** Where "how the AI takes notes" points: the README's memory section. */
 const MEMORY_HELP_URL = "https://github.com/leazoot/fylane#readme";
 
-const POLL_MS = 2000;
 export default function App() {
   const [lang, setLang] = useState<Lang>(storedLang);
   // The Core is told too, so what it says on its own — a system

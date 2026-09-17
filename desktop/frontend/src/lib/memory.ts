@@ -126,8 +126,19 @@ export function pageEmpty(page: MemoryPage | undefined): boolean {
   );
 }
 
-/** The title memory_compact gives the note a batch is folded into. The
+/** The title memory action=compact gives the note a batch is folded into. The
  *  board marks it with the ink dot; nothing else about the row differs. */
+/** Whether a failed step save means that step is gone rather than that the
+ *  write failed. The Core answers a stale id with 404 and says so; the shell
+ *  wraps a proxied answer as "core error (404): …". Rewriting the plan
+ *  replaces every row, so an editor left open going out of date is the
+ *  ordinary case here, and it is worth telling apart from a Core too old to
+ *  have the endpoint at all — the two need different sentences on screen. */
+export function stepGone(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.message.includes("(404)") || err.message.includes("no such step");
+}
+
 export const SUMMARY_TITLE = /^Summary of notes up to #\d+/;
 
 export type NoteTone = "applied" | "summary" | "plain";

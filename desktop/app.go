@@ -382,6 +382,20 @@ func (a *App) SaveMemoryPage(machineID, workspaceID, pageJSON string) (string, e
 	})
 }
 
+// SaveMemoryPlanStep changes one step of the plan by hand: its state, its
+// title, its note. The change travels as JSON so a field left out stays out —
+// absent and empty are different answers here, and only absent means "leave
+// this one alone".
+func (a *App) SaveMemoryPlanStep(machineID, workspaceID string, id int64, patchJSON string) (string, error) {
+	patch := map[string]any{}
+	if err := json.Unmarshal([]byte(patchJSON), &patch); err != nil {
+		return "", fmt.Errorf("invalid step change: %w", err)
+	}
+	patch["workspace_id"] = workspaceID
+	patch["id"] = id
+	return a.callOn(machineID, "POST", "/v1/memory/plan/step", patch)
+}
+
 // DeleteMemoryNote removes one note for good.
 func (a *App) DeleteMemoryNote(machineID, workspaceID string, id int64) (string, error) {
 	return a.callOn(machineID, "POST", "/v1/memory/notes/delete", map[string]any{
