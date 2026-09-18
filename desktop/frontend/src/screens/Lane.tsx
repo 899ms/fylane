@@ -721,10 +721,37 @@ function Calm(props: LaneProps & { tr: Translator }) {
 
 // ── the rail ───────────────────────────────────────────────────────────────
 
+/** A rail dropdown closes when the pointer goes down outside it, or on
+ *  Escape. Without either it stays open over whatever the user does next.
+ *  mousedown rather than click, so the menu is gone before the click lands
+ *  on what was underneath it. The returned ref goes on the box that holds
+ *  both the menu and the word that opens it — a press on that word must
+ *  count as inside, or opening and closing would fight each other. */
+function useDismiss(open: boolean, setOpen: (v: boolean) => void) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, setOpen]);
+  return box;
+}
+
 function Rail(props: LaneProps & { tr: Translator }) {
   const { snapshot, workspaces, tr } = props;
   const { t } = tr;
   const [menu, setMenu] = useState(false);
+  const menuBox = useDismiss(menu, setMenu);
   const ws = snapshot.workspace;
   const paused = ws?.status === "paused";
   const machine = selectedMachine(props);
@@ -737,7 +764,11 @@ function Rail(props: LaneProps & { tr: Translator }) {
       {/* A machine that is not up has no folder to stand on; offering one
           would be offering a folder on a computer nothing can reach. */}
       {(!machine || machine.info.state === "online") && (
-        <div className="fy-revealer" style={{ position: "relative" }}>
+        <div
+          className="fy-revealer"
+          ref={menuBox}
+          style={{ position: "relative" }}
+        >
           {props.machines && props.onSelectMachine && (
             <div className="fy-hline" style={{ margin: "22px 0 20px" }} />
           )}
@@ -1037,6 +1068,7 @@ function MachineAnchor(props: LaneProps & { tr: Translator }) {
   const { tr } = props;
   const { t } = tr;
   const [menu, setMenu] = useState(false);
+  const menuBox = useDismiss(menu, setMenu);
   const [removing, setRemoving] = useState(false);
   const machines = props.machines ?? [];
   const machine = selectedMachine(props);

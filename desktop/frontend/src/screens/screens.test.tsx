@@ -337,6 +337,45 @@ describe("settings, after a read that failed", () => {
   });
 });
 
+describe("a rail dropdown", () => {
+  // It used to stay open behind whatever the user did next: clicking away
+  // left it hanging over the page, and nothing but a second press on the
+  // same word closed it (user report, 2026-09-17).
+  const open = () => {
+    draw(<LaneScreen {...laneProps} snapshot={snap()} tasks={[]} />);
+    click(buttons().find((b) => b.hasAttribute("aria-expanded")));
+    expect(host.querySelector(".fy-wsmenu")).not.toBeNull();
+  };
+
+  it("closes when the pointer goes down outside it", () => {
+    open();
+    act(() => {
+      document.body.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true }),
+      );
+    });
+    expect(host.querySelector(".fy-wsmenu")).toBeNull();
+  });
+
+  it("closes on Escape", () => {
+    open();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(host.querySelector(".fy-wsmenu")).toBeNull();
+  });
+
+  it("stays open when the pointer goes down inside it", () => {
+    open();
+    act(() => {
+      host
+        .querySelector(".fy-wsmenu")!
+        .dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    expect(host.querySelector(".fy-wsmenu")).not.toBeNull();
+  });
+});
+
 describe("the connected-AI rail", () => {
   // Both states used to be filled dots a few percent apart in lightness — the
   // same dot to anyone not comparing them side by side (user report,
