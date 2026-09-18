@@ -4,7 +4,7 @@
 
 # Fylane
 
-**Let ChatGPT, Claude and Grok on the web read and edit a project on your computer or your VPS. Every edit and command waits for your OK first.**
+**Let ChatGPT, Claude, Grok and Gemini on the web read and edit a project on your computer or your VPS. Every edit and command waits for your OK first.**
 
 English | [简体中文](README.zh-CN.md)
 
@@ -181,6 +181,30 @@ A few things are different on Grok:
   plainly: "use Fylane's run_command to run the tests".
 - Grok waits only 60 seconds per call. If you have not approved by then, it is
   told the request is pending. Approve, then ask it to try again.
+
+</details>
+
+<details>
+<summary><b>Gemini</b></summary>
+
+Needs Google AI Pro or Ultra, and Gemini Spark. Spark is not available in the
+EEA, the UK, Switzerland or Nigeria.
+
+1. gemini.google.com → switch to **Spark** → **Connected Apps** → under
+   **Custom apps**, click **Add a custom app**.
+2. Paste the address. Leave the fields under **Advanced features** empty:
+   Gemini registers itself with Fylane.
+3. Click **Next**. An authorization page opens, see step 3.
+
+![Add a custom app](assets/setup/gemini-add-custom-app.png)
+
+A few things are different on Gemini:
+
+- Connected Apps needs **Gemini Activity** turned on. If the page says apps
+  are unavailable, turn it on first.
+- Custom apps can only be added in the web app. Once added, they also work in
+  the mobile app.
+- Custom apps only work inside Spark tasks, not in ordinary chats.
 
 </details>
 
@@ -407,7 +431,7 @@ decide in Fylane. `change_manage` handles moves, deletes and undo.
 | Can it run anything? | No. It runs single programs only. `sudo` and deleting files outside the folder are always refused, and `rm -r` or `git push` ask first by default. |
 | Does the AI remember the project between chats? | Yes, see [Memory](#memory). |
 | Does it work with a project on my VPS? | Yes. It connects over the ssh you already use, and you still approve on this computer. |
-| Which AIs? | ChatGPT, Claude and Grok, set up with the three steps above. Other apps that support remote MCP can connect the same way. |
+| Which AIs? | ChatGPT, Claude, Grok and Gemini, set up with the three steps above. Other apps that support remote MCP can connect the same way. |
 
 ## Development
 

@@ -22,7 +22,8 @@ const SourceAny = "ANY"
 // Rule is one lane on the Route rules screen.
 type Rule struct {
 	ID string `json:"id"`
-	// Source is a provider name ("chatgpt", "claude", "grok") or SourceAny.
+	// Source is a provider name ("chatgpt", "claude", "grok", "gemini") or
+	// SourceAny.
 	Source string `json:"source"`
 	// Patterns are glob patterns matched against the file's base name; any
 	// one of them matching is enough ("*.tsx  *.ts" in the UI).

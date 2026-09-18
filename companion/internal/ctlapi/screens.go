@@ -69,7 +69,7 @@ type sourceView struct {
 
 // knownProviders is the fixed set of sources the product supports; a
 // connector for anything else is ignored rather than rendered.
-var knownProviders = []string{"chatgpt", "claude", "grok"}
+var knownProviders = []string{"chatgpt", "claude", "grok", "gemini"}
 
 func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	connectors, err := s.Store.ListConnectors(r.Context())

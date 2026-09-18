@@ -117,7 +117,7 @@ func TestSourcesReportConnectionState(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Sources) != 3 {
+	if len(got.Sources) != len(knownProviders) {
 		t.Fatalf("want a row for every known provider, got %d", len(got.Sources))
 	}
 	by := map[string]sourceView{}
@@ -130,8 +130,17 @@ func TestSourcesReportConnectionState(t *testing.T) {
 	if by["chatgpt"].Connected {
 		t.Error("a revoked connector must not read as connected")
 	}
-	if by["grok"].Connected || by["grok"].LastSeenAt != "" {
-		t.Errorf("grok = %+v, want never connected", by["grok"])
+	// A provider with no connector row still gets a row here — that is how
+	// the rail shows it as "not connected" rather than not at all.
+	for _, p := range []string{"grok", "gemini"} {
+		v, ok := by[p]
+		if !ok {
+			t.Errorf("%s missing from sources", p)
+			continue
+		}
+		if v.Connected || v.LastSeenAt != "" {
+			t.Errorf("%s = %+v, want never connected", p, v)
+		}
 	}
 	// The response is a status board; it must not leak credential material.
 	if s := string(raw); strings.Contains(s, "token") || strings.Contains(s, "remote_connector_id") {

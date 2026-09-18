@@ -4,7 +4,7 @@
 
 # Fylane
 
-**让网页版 ChatGPT、Claude、Grok 直接读写你电脑或 VPS 上的项目。改文件、跑命令前,都要你先点头。**
+**让网页版 ChatGPT、Claude、Grok、Gemini 直接读写你电脑或 VPS 上的项目。改文件、跑命令前,都要你先点头。**
 
 [English](README.md) | 简体中文
 
@@ -148,6 +148,25 @@ Grok 有几点不一样:
 - **Grok 自己不会弹写入确认。** 用 Grok 时,Fylane 的写入确认最好保持开着。
 - Grok 自带云端沙箱,你说「跑一下测试」,它可能在自己那边跑。要说清楚:「用 Fylane 的 run_command 跑测试」。
 - Grok 一次调用只等 60 秒。60 秒内没批准,它会收到「等待批准」,批准后让它再试一次。
+
+</details>
+
+<details>
+<summary><b>Gemini</b></summary>
+
+需要 Google AI Pro 或 Ultra 订阅,并且能用 Gemini Spark。Spark 在欧洲经济区、英国、瑞士、尼日利亚不可用。
+
+1. gemini.google.com → 切到 **Spark** → **Connected Apps** → 在 **Custom apps** 下点 **Add a custom app**。
+2. 粘贴地址。**Advanced features 下面的字段留空**,Gemini 会自己向 Fylane 注册。
+3. 点 **Next**,浏览器打开授权页,见第三步。
+
+![添加自定义应用](assets/setup/gemini-add-custom-app.png)
+
+Gemini 有几点不一样:
+
+- Connected Apps 要先打开 **Gemini Activity**。页面提示 apps unavailable 时,先去打开它。
+- 自定义应用只能在网页版里添加,添加后手机 App 里也能用。
+- 自定义应用只在 Spark 任务里生效,普通对话不会调用。
 
 </details>
 
@@ -319,7 +338,7 @@ go build -o bin/fylane-companion ./companion/cmd/companion
 | 它什么命令都能跑吗? | 不能。只能跑单个程序。`sudo`、删目录以外的文件这类一律拒绝,`rm -r`、`git push` 这类默认会先问你。 |
 | AI 换个对话还记得这个项目吗? | 记得,见[记忆](#记忆)。 |
 | 项目在 VPS 上能用吗? | 能。用你现有的 ssh 连过去,批准还是在这台电脑上点。 |
-| 支持哪些 AI? | ChatGPT、Claude、Grok 按上面三步就能接上。其他支持远程 MCP 的客户端也能用同样的方式连。 |
+| 支持哪些 AI? | ChatGPT、Claude、Grok、Gemini 按上面三步就能接上。其他支持远程 MCP 的客户端也能用同样的方式连。 |
 
 ## 开发
 
