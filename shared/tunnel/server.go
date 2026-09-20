@@ -45,9 +45,10 @@ type serverConn struct {
 	closed  bool
 }
 
-// legacyIdentity is the registry key used by shared-token Companions, which
-// carry no device identity.
-const legacyIdentity = "legacy"
+// LegacyIdentity is the registry key used by shared-token Companions, which
+// carry no device identity. Public so the relay can address that one
+// Companion for traffic that carries no routing key of its own.
+const LegacyIdentity = "legacy"
 
 // NewServer returns a Server that only accepts Companions presenting token
 // (the Phase 0 shared-token scheme, still used for simple self-hosting).
@@ -60,7 +61,7 @@ func NewServer(token string) (*Server, error) {
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get(AuthHeader)), []byte(want)) != 1 {
 			return "", errors.New("invalid tunnel token")
 		}
-		return legacyIdentity, nil
+		return LegacyIdentity, nil
 	}), nil
 }
 
@@ -137,28 +138,36 @@ func (s *Server) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 // It performs no caller authentication itself — the relay must gate it
 // (legacy mode presents the shared token; see relay/cmd/relay).
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.ForwardTo(w, r, legacyIdentity)
+	s.ForwardTo(w, r, LegacyIdentity)
 }
 
-// ForwardTo forwards a public HTTP request to the given device's tunnel,
+// ForwardTo forwards a public MCP request to the given device's tunnel,
 // answering 503 immediately when it is offline — offline writes are never
-// queued. It returns the upstream status code.
+// queued. It returns the upstream status code. A GET is refused: the
+// buffered tunnel cannot carry a never-ending standalone SSE stream, and
+// MCP clients treat 405 on GET as "stream not supported" and continue.
 func (s *Server) ForwardTo(w http.ResponseWriter, r *http.Request, deviceID string) int {
+	if r.Method == http.MethodGet {
+		status := writeJSONError(w, http.StatusMethodNotAllowed, "standalone SSE streams are not supported by this tunnel")
+		log.Printf("relay: %s %s -> %d", r.Method, r.URL.Path, status)
+		return status
+	}
+	return s.ForwardAny(w, r, deviceID)
+}
+
+// ForwardAny is ForwardTo for surfaces that are plain HTTP rather than MCP:
+// the approver API, whose page assets and inbox long-poll are GETs that
+// end on their own well inside the forward timeout.
+func (s *Server) ForwardAny(w http.ResponseWriter, r *http.Request, deviceID string) int {
 	start := time.Now()
 	status := s.forward(w, r, deviceID)
 	// Log request type, duration, and status only — never payloads or paths
-	// beyond the fixed public endpoint.
+	// beyond the fixed public endpoints.
 	log.Printf("relay: %s %s -> %d (%s)", r.Method, r.URL.Path, status, time.Since(start).Round(time.Millisecond))
 	return status
 }
 
 func (s *Server) forward(w http.ResponseWriter, r *http.Request, deviceID string) int {
-	// The buffered tunnel cannot carry a never-ending standalone SSE stream;
-	// MCP clients treat 405 on GET as "stream not supported" and continue.
-	if r.Method == http.MethodGet {
-		return writeJSONError(w, http.StatusMethodNotAllowed, "standalone SSE streams are not supported by this tunnel")
-	}
-
 	s.mu.Lock()
 	conn := s.conns[deviceID]
 	s.mu.Unlock()

@@ -38,7 +38,10 @@ type Client struct {
 	// commits to SSE as soon as it accepts a tool call but flushes headers
 	// only with the first event — minutes away when a local approval is
 	// pending — which would let intermediary proxies time the call out.
-	// Enable when Handler is an MCP Streamable HTTP handler.
+	// Enable when Handler is an MCP Streamable HTTP handler. It applies to
+	// requests for /mcp only: any other tunneled surface (the approver
+	// inbox holds a long-poll open for longer than the interval) answers
+	// with its own headers in its own time.
 	EagerSSE bool
 
 	// connected reflects whether a relay connection is currently up; read
@@ -149,17 +152,17 @@ var sseKeepaliveInterval = 15 * time.Second
 // header/chunk/end frames while the handler runs.
 func (c *Client) answer(ctx context.Context, ws *websocket.Conn, writeMu *sync.Mutex, f *Frame) {
 	rec := &streamRecorder{
-		ctx:      ctx,
-		ws:       ws,
-		writeMu:  writeMu,
-		id:       f.ID,
-		header:   make(http.Header),
-		eagerSSE: c.EagerSSE,
+		ctx:     ctx,
+		ws:      ws,
+		writeMu: writeMu,
+		id:      f.ID,
+		header:  make(http.Header),
 	}
 	req, err := buildRequest(ctx, f)
 	if err != nil {
 		rec.WriteHeader(http.StatusBadRequest)
 	} else {
+		rec.eagerSSE = c.EagerSSE && req.URL.Path == "/mcp"
 		keepaliveDone := make(chan struct{})
 		go rec.keepaliveLoop(keepaliveDone)
 		c.Handler.ServeHTTP(rec, req)

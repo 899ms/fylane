@@ -158,7 +158,7 @@ func TestReconnect(t *testing.T) {
 
 	// Kill the active tunnel from the relay side; the client must dial back.
 	ts.mu.Lock()
-	conn := ts.conns[legacyIdentity]
+	conn := ts.conns[LegacyIdentity]
 	ts.mu.Unlock()
 	conn.close(4000, "test-induced drop")
 	waitForCompanion(t, ts, false)
@@ -268,5 +268,49 @@ func TestGetRejected(t *testing.T) {
 func TestThePublishedFrameLimitIsTheOneWeShip(t *testing.T) {
 	if MaxFrameBytes != 64<<20 {
 		t.Errorf("MaxFrameBytes = %d, published as a 64 MiB tunnel frame", MaxFrameBytes)
+	}
+}
+
+// TestForwardAnyCarriesAGetAndLeavesItsHeadersAlone covers the approver
+// surface behind a relay: its inbox is a GET that holds a long-poll open
+// past the eager-SSE interval and then answers as JSON. ForwardTo would
+// refuse the GET, and the interval would commit an MCP call to an event
+// stream; neither may touch a request for another path.
+func TestForwardAnyCarriesAGetAndLeavesItsHeadersAlone(t *testing.T) {
+	old := sseKeepaliveInterval
+	sseKeepaliveInterval = 50 * time.Millisecond
+	defer func() { sseKeepaliveInterval = old }()
+
+	ts, err := NewServer(testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tunnel", ts.HandleTunnel)
+	mux.HandleFunc("/v1/approver/", func(w http.ResponseWriter, r *http.Request) {
+		ts.ForwardAny(w, r, LegacyIdentity)
+	})
+	httpServer := httptest.NewServer(mux)
+	t.Cleanup(httpServer.Close)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(4 * sseKeepaliveInterval)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"path":"` + r.URL.Path + `","method":"` + r.Method + `"}`))
+	})
+	cancel := startClient(t, ts, httpServer, handler)
+	defer cancel()
+
+	resp, err := http.Get(httpServer.URL + "/v1/approver/inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != `{"path":"/v1/approver/inbox","method":"GET"}` {
+		t.Fatalf("GET through ForwardAny: %d %q", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("content type %q: the eager SSE header was written over a non-MCP response", ct)
 	}
 }
