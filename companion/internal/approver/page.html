@@ -2,10 +2,11 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Fylane">
+<meta name="theme-color" id="tc" content="#EFEBE1">
 <link rel="manifest" href="/approver/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/approver/icon.png">
+<link rel="apple-touch-icon" href="/approver/icon.png?v={{icon}}">
 <title>Fylane Approver</title>
 <style nonce="{{nonce}}">
 :root{
@@ -32,7 +33,7 @@ body::before{content:"";position:fixed;inset:0 0 auto 0;height:260px;pointer-eve
  background:linear-gradient(var(--fy-bg2),transparent)}
 .wrap{position:relative;flex:1;display:flex;flex-direction:column;padding:0 22px;
  padding-left:max(22px,env(safe-area-inset-left));padding-right:max(22px,env(safe-area-inset-right))}
-.bar{display:flex;align-items:center;gap:12px;height:44px;margin-top:max(18px,env(safe-area-inset-top));flex:none}
+.bar{display:flex;align-items:center;gap:12px;height:44px;margin-top:calc(env(safe-area-inset-top,0px) + 14px);flex:none}
 .brand{display:flex;align-items:center;gap:9px;font:500 13px/1 var(--sans)}
 .gate{display:flex;gap:3px;align-items:center}
 .gate i{width:2px;height:13px;border-radius:2px;background:var(--fy-ink)}
@@ -104,14 +105,10 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  color:var(--fy-ink);padding:0 14px;font:400 15px/1 var(--sans)}
 .field input:focus{outline:2px solid var(--fy-ink);outline-offset:1px}
 .err{margin:12px 0 0;font:400 12.5px/1.55 var(--sans);color:var(--fy-brick)}
-.trust{display:grid;gap:14px;margin-top:26px;padding-top:18px;border-top:1px solid var(--fy-rule2)}
-.trust b{display:block;font:400 10.5px/1 var(--mono);letter-spacing:.1em;color:var(--fy-faint);margin-bottom:6px}
-.trust p{margin:0;font:400 12.5px/1.6 var(--sans);color:var(--fy-muted);text-wrap:pretty}
 .summary{margin-top:18px;padding-top:14px;border-top:1px solid var(--fy-rule2);display:grid;gap:8px}
 .summary div{display:flex;justify-content:space-between;gap:16px;font:400 12.5px/1.3 var(--sans)}
 .summary span:first-child{color:var(--fy-faint)}
-.foot{flex:none;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:16px 0 max(22px,env(safe-area-inset-bottom));
- font:400 11.5px/1.5 var(--sans);color:var(--fy-faint);border-top:1px solid var(--fy-rule2)}
+.foot{flex:none;display:flex;justify-content:flex-end;padding:16px 0 max(22px,env(safe-area-inset-bottom));border-top:1px solid var(--fy-rule2)}
 .quiet{border:0;background:transparent;padding:0;cursor:pointer;font:400 12px/1 var(--sans);color:var(--fy-faint);
  border-bottom:1px solid transparent}
 .quiet:hover{border-bottom-color:var(--fy-faint)}
@@ -133,9 +130,9 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  <main>
   <!-- The browser cannot do the cryptography this page needs. -->
   <section id="unsupported" hidden>
-   <div class="tag" data-tone="brick"><i></i><span data-k="uTag">This browser cannot pair</span></div>
-   <h1 data-k="uTitle">A newer browser is needed</h1>
-   <p class="lede" data-k="uLede">This page keeps its keys in the browser and needs Web Crypto with Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.</p>
+   <div class="tag" data-tone="brick"><i></i><span data-k="uTag">Cannot pair</span></div>
+   <h1 data-k="uTitle">Open this in another browser</h1>
+   <p class="lede" data-k="uLede">Needs Safari 17, Chrome 137 or Firefox 130 and later.</p>
    <p class="err" id="uwhy" hidden></p>
   </section>
 
@@ -143,29 +140,24 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   <section id="nocode" hidden>
    <div class="tag" data-tone="faint"><i></i><span data-k="nTag">Not paired</span></div>
    <h1 data-k="nTitle">Pair from the computer</h1>
-   <p class="lede" data-k="nLede">Open Fylane on the computer that runs it, go to Settings → Approver devices, and scan the code it shows with this phone.</p>
+   <p class="lede" data-k="nLede">Settings → Approver devices → Pair a phone.</p>
   </section>
 
   <!-- A code arrived in the address: pair this device. -->
   <section id="pair" hidden>
    <div class="tag"><i></i><span data-k="pTag">Pairing</span></div>
    <h1 data-k="pTitle">Answer approvals from this phone</h1>
-   <p class="lede" data-k="pLede">Give this device a name so the computer can list it. Two keys are made here and never leave the phone; the computer only learns their public halves.</p>
+   <p class="lede" data-k="pLede">Give this phone a name.</p>
    <div class="field"><label for="name" data-k="pName">Device name</label><input id="name" maxlength="64" autocomplete="off"></div>
    <p class="err" id="perr" role="alert" hidden></p>
    <div class="actions"><button type="button" class="primary" id="pgo" data-k="pGo">Pair this device</button></div>
-   <div class="trust">
-    <div><b>01</b><p data-k="t1">Every prompt is encrypted to this phone before it leaves the computer; the tunnel carries only ciphertext.</p></div>
-    <div><b>02</b><p data-k="t2">Each answer is signed here and is good once, for a minute. The computer still runs every check it always did.</p></div>
-    <div><b>03</b><p data-k="t3">The pairing lasts 30 days and can be withdrawn from the computer at any moment.</p></div>
-   </div>
   </section>
 
   <!-- Paired, nothing waiting. -->
   <section id="idle" hidden>
    <div class="tag" data-tone="sage" data-pulse="1" id="itag"><i></i><span id="istate" data-k="iListening">Listening</span></div>
    <h1 data-k="iTitle">Nothing is waiting</h1>
-   <p class="lede" data-k="iLede">When a platform asks to write, run or send something, the prompt appears here and on the computer. Whichever answers first settles it.</p>
+   <p class="lede" data-k="iLede">Prompts will appear here.</p>
    <div class="summary">
     <div><span data-k="sDevice">This device</span><span id="iname"></span></div>
     <div><span data-k="sUntil">Paired until</span><span id="iuntil"></span></div>
@@ -207,32 +199,29 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   <section id="gone" hidden>
    <div class="tag" data-tone="brick"><i></i><span id="gtag"></span></div>
    <h1 id="gtitle"></h1>
-   <p class="lede" data-k="gLede">Scan a new code from the computer to pair again. The keys this phone held are discarded.</p>
+   <p class="lede" data-k="gLede">Scan a new code from the computer.</p>
    <div class="actions"><button type="button" class="outline" id="gclear" data-k="gClear">Forget this pairing</button></div>
   </section>
  </main>
 
- <div class="foot"><span data-k="fLocal">Fylane · decided here, executed on the computer</span><span class="sp"></span><button type="button" class="quiet" id="forget" data-k="fForget" hidden>Forget this pairing</button></div>
+ <div class="foot" id="foot" hidden><button type="button" class="quiet" id="forget" data-k="fForget">Forget this pairing</button></div>
 </div>
 <script nonce="{{nonce}}">
 (function () {
  "use strict";
  var D = {
   en: {
-   eyebrow:"Approver", uTag:"This browser cannot pair", uTitle:"A newer browser is needed",
-   uLede:"This page keeps its keys in the browser and needs Web Crypto with Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.",
+   eyebrow:"Approver", uTag:"Cannot pair", uTitle:"Open this in another browser",
+   uLede:"Needs Safari 17, Chrome 137 or Firefox 130 and later.",
    nTag:"Not paired", nTitle:"Pair from the computer",
-   nLede:"Open Fylane on the computer that runs it, go to Settings → Approver devices, and scan the code it shows with this phone.",
+   nLede:"Settings → Approver devices → Pair a phone.",
    pTag:"Pairing", pTitle:"Answer approvals from this phone",
-   pLede:"Give this device a name so the computer can list it. Two keys are made here and never leave the phone; the computer only learns their public halves.",
+   pLede:"Give this phone a name.",
    pName:"Device name", pGo:"Pair this device", pBusy:"Pairing…",
-   pBadCode:"That code is no longer valid. Generate a new one on the computer and scan again.",
-   pFailed:"Could not reach the computer. Check that it is online, then try again.",
-   t1:"Every prompt is encrypted to this phone before it leaves the computer; the tunnel carries only ciphertext.",
-   t2:"Each answer is signed here and is good once, for a minute. The computer still runs every check it always did.",
-   t3:"The pairing lasts 30 days and can be withdrawn from the computer at any moment.",
+   pBadCode:"Code expired. Generate a new one on the computer.",
+   pFailed:"Cannot reach the computer. Try again.",
    iListening:"Listening", iOffline:"Reconnecting…", iTitle:"Nothing is waiting",
-   iLede:"When a platform asks to write, run or send something, the prompt appears here and on the computer. Whichever answers first settles it.",
+   iLede:"Prompts will appear here.",
    sDevice:"This device", sUntil:"Paired until",
    waiting:"Waiting for approval", more:function(n){return "+" + n + " more";},
    asksToRun:"asks to run", asksToWrite:"asks to write", asksToSend:"wants to send this out",
@@ -240,36 +229,33 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    defaultWhat:"Write to the workspace", ordinary:"Ordinary command",
    allow:"Approve", allowHere:"Allow in this folder", allowAgent:function(h){return "Approve for " + h + " h";},
    confirmDelete:"Delete it all", details:"Details", hideDetails:"Hide details", reject:"Reject", sending:"Sending…",
-   delegationGrant:function(h){return "Approving lets this agent keep working in this folder for " + h + " hours without asking again. Withdraw that any time in Settings.";},
+   delegationGrant:function(h){return "No more prompts for " + h + " h; withdraw in Settings.";},
    mSource:"Source", mAsked:"Asked at", mDir:"Directory", mBoundary:"Boundary", mNetwork:"Network", mID:"Request", mChanges:"Changes",
    viaBrowser:function(w){return w + " · browser session";},
-   safetyDefault:"It runs inside the granted folder, with a timeout and an output cap, and it is recorded either way.",
+   safetyDefault:"Inside the granted folder, with a timeout and an output cap.",
    netAllowed:"can reach the network", netDenied:"no network", netPartial:"no TCP; DNS and QUIC still leave", netUnbounded:"asked for, this machine cannot",
    opRecursive:"the whole directory and everything in it", opSensitive:"sensitive file",
    opBeyondUndo:"too large for the recycle area — this one may not come back",
    opTree:function(files,size){return files + " files, " + size;}, opTreeAtLeast:function(files,size){return "at least " + files + " files, " + size;},
-   aGone:"Already answered on the computer.", aFailed:"Could not send the answer. Try again.",
-   gRevoked:"Pairing withdrawn", gRevokedTitle:"The computer no longer accepts this phone",
-   gExpired:"Pairing expired", gExpiredTitle:"30 days have passed since this phone was paired",
-   gLede:"Scan a new code from the computer to pair again. The keys this phone held are discarded.",
-   gClear:"Forget this pairing", fLocal:"Fylane · decided here, executed on the computer", fForget:"Forget this pairing",
+   aGone:"Already answered on the computer.", aFailed:"Not sent. Try again.",
+   gRevoked:"Pairing withdrawn", gRevokedTitle:"The computer withdrew this pairing",
+   gExpired:"Pairing expired", gExpiredTitle:"The pairing is 30 days old",
+   gLede:"Scan a new code from the computer.",
+   gClear:"Forget this pairing", fForget:"Forget this pairing",
    tools:{command:"exec", disclosure:"read", delegation:"code_task", write:"write", proxy:"proxy"}
   },
   zh: {
-   eyebrow:"审批设备", uTag:"这个浏览器无法配对", uTitle:"需要更新的浏览器",
-   uLede:"这一页把密钥留在浏览器里，需要支持 Ed25519 的 Web Crypto：Safari 17、Chrome 137 或 Firefox 130 及以上。请换一个浏览器打开。",
+   eyebrow:"审批设备", uTag:"无法配对", uTitle:"请换个浏览器打开",
+   uLede:"需要 Safari 17、Chrome 137 或 Firefox 130 及以上。",
    nTag:"尚未配对", nTitle:"在电脑上发起配对",
-   nLede:"打开运行 Fylane 的那台电脑，进入 设置 → 审批设备，用这部手机扫描它显示的二维码。",
+   nLede:"设置 → 审批设备 → 配对手机。",
    pTag:"配对中", pTitle:"用这部手机回答审批",
-   pLede:"给这台设备起个名字，方便在电脑上认出它。两把密钥在这里生成、永不离开手机；电脑只拿到公钥。",
+   pLede:"给这部手机起个名字。",
    pName:"设备名称", pGo:"配对这台设备", pBusy:"配对中…",
-   pBadCode:"这个配对码已失效。回到电脑重新生成一个，再扫一次。",
-   pFailed:"联系不上电脑。确认它在线后再试。",
-   t1:"每一条提示在离开电脑前都已加密给这部手机；隧道上只有密文。",
-   t2:"每一次作答在这里签名，只用一次、一分钟内有效。电脑上该做的检查一样不少。",
-   t3:"配对有效 30 天，随时可以在电脑上收回。",
+   pBadCode:"配对码已失效，请在电脑上重新生成。",
+   pFailed:"联系不上电脑，请稍后再试。",
    iListening:"监听中", iOffline:"重新连接中…", iTitle:"没有等待的审批",
-   iLede:"平台请求写入、执行或发送时，提示会同时出现在这里和电脑上。谁先作答就以谁为准。",
+   iLede:"有审批时会出现在这里。",
    sDevice:"这台设备", sUntil:"配对有效至",
    waiting:"等待批准", more:function(n){return "还有 " + n + " 条";},
    asksToRun:"请求执行", asksToWrite:"请求写入", asksToSend:"请求发送出去",
@@ -277,19 +263,19 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    defaultWhat:"写入工作区", ordinary:"普通命令",
    allow:"批准执行", allowHere:"授权此工作区", allowAgent:function(h){return "批准，" + h + " 小时内不再问";},
    confirmDelete:"全部删除", details:"查看详情", hideDetails:"收起详情", reject:"拒绝", sending:"发送中…",
-   delegationGrant:function(h){return "批准后 " + h + " 小时内，这个 agent 在这个目录里接管不再询问。随时可在设置里撤回。";},
+   delegationGrant:function(h){return h + " 小时内不再询问，可在设置里撤回。";},
    mSource:"来源", mAsked:"请求时间", mDir:"工作目录", mBoundary:"边界", mNetwork:"网络", mID:"请求 ID", mChanges:"写入内容",
    viaBrowser:function(w){return w + " · 浏览器会话";},
-   safetyDefault:"它在授权目录里执行，有超时和输出上限，无论结果如何都会被记录。",
+   safetyDefault:"授权目录内执行，有超时与输出上限。",
    netAllowed:"可以联网", netDenied:"不能联网", netPartial:"已拒 TCP；DNS 与 QUIC 仍会外发", netUnbounded:"已要求，这台机器做不到",
    opRecursive:"整个目录及其中的全部内容", opSensitive:"敏感文件",
    opBeyondUndo:"超出回收区容量 —— 这一次可能撤不回来",
    opTree:function(files,size){return files + " 个文件，" + size;}, opTreeAtLeast:function(files,size){return "至少 " + files + " 个文件，" + size;},
-   aGone:"已在电脑上作答。", aFailed:"作答没有送出，请再试一次。",
-   gRevoked:"配对已收回", gRevokedTitle:"电脑不再接受这部手机的作答",
-   gExpired:"配对已到期", gExpiredTitle:"距离配对已过去 30 天",
-   gLede:"回到电脑重新扫码即可再次配对。这部手机上的密钥会被丢弃。",
-   gClear:"忘掉这次配对", fLocal:"Fylane · 在这里决定，在电脑上执行", fForget:"忘掉这次配对",
+   aGone:"已在电脑上作答。", aFailed:"没有送出，请再试一次。",
+   gRevoked:"配对已收回", gRevokedTitle:"电脑已收回这次配对",
+   gExpired:"配对已到期", gExpiredTitle:"配对已满 30 天",
+   gLede:"回到电脑重新扫码。",
+   gClear:"忘掉这次配对", fForget:"忘掉这次配对",
    tools:{command:"exec", disclosure:"read", delegation:"code_task", write:"write", proxy:"proxy"}
   }
  };
@@ -300,8 +286,14 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  function T() { return D[lang]; }
 
  // Appearance follows the system, overridable here like the desktop window.
+ // The browser paints its own bars in the theme-color, so it moves with the
+ // page and matches the band at the top of it.
  var mq = window.matchMedia("(prefers-color-scheme: dark)"), forced = null;
- function theme() { root.setAttribute("data-fy", (forced === null ? mq.matches : forced) ? "dark" : "light"); }
+ function theme() {
+  var dark = forced === null ? mq.matches : forced;
+  root.setAttribute("data-fy", dark ? "dark" : "light");
+  $("tc").setAttribute("content", dark ? "#1C1E1A" : "#EFEBE1");
+ }
  mq.addEventListener("change", function () { if (forced === null) theme(); });
  $("theme").onclick = function () { forced = !(forced === null ? mq.matches : forced); theme(); };
  theme();
@@ -420,7 +412,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  // ── states ───────────────────────────────────────────────────────────
  var SECTIONS = ["unsupported", "nocode", "pair", "idle", "prompt", "gone"];
  var state = "idle", dev = null, prompts = [], current = null, armed = false, detailsOpen = false, busy = false;
- function show(name) { state = name; SECTIONS.forEach(function (s) { $(s).hidden = s !== name; }); $("forget").hidden = !dev || name === "gone"; }
+ function show(name) { state = name; SECTIONS.forEach(function (s) { $(s).hidden = s !== name; }); $("foot").hidden = !dev || name === "gone"; }
 
  function paint() {
   var d = T(); root.lang = lang;
