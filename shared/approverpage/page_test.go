@@ -1,4 +1,4 @@
-package approver
+package approverpage
 
 import (
 	"net/http"
@@ -13,10 +13,11 @@ import (
 // under a tag derived from its bytes, with no template marker left behind,
 // so a replaced icon is never served from a day-old cache.
 func TestTheIconIsInstalledFromAnAddressThatChangesWithIt(t *testing.T) {
-	r := newRig(t)
+	mux := http.NewServeMux()
+	Routes(mux)
 	get := func(path string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		r.svc.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s: %d", path, rec.Code)
 		}
@@ -74,5 +75,12 @@ func TestTheIconIsInstalledFromAnAddressThatChangesWithIt(t *testing.T) {
 	csp := get("/approver").Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "script-src 'self' 'nonce-") || strings.Contains(csp, "http") {
 		t.Errorf("policy must allow scripts from this origin and its nonce only: %s", csp)
+	}
+	// Under a different path the page is not there: the handler is
+	// registered for /approver/ as a prefix and must not answer /approver/x.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/approver/other", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /approver/other: %d, want 404", rec.Code)
 	}
 }
