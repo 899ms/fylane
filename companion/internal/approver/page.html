@@ -184,7 +184,10 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    <div class="summary">
     <div><span data-k="sDevice">This device</span><span id="iname"></span></div>
     <div><span data-k="sUntil">Paired until</span><span id="iuntil"></span></div>
+    <div><span data-k="sPush">Notifications</span><span id="ipush"></span></div>
    </div>
+   <p class="err" id="pusherr" role="alert" hidden></p>
+   <div class="actions" id="pushrow" hidden><button type="button" class="outline" id="pushon" data-k="iPushOn">Turn on notifications</button></div>
   </section>
 
   <!-- A prompt, in the desktop window's own words. -->
@@ -249,7 +252,9 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    pFailed:"Cannot reach the computer. Try again.",
    iListening:"Listening", iOffline:"Reconnecting…", iTitle:"Nothing is waiting",
    iLede:"Prompts will appear here.",
-   sDevice:"This device", sUntil:"Paired until",
+   sDevice:"This device", sUntil:"Paired until", sPush:"Notifications",
+   pushOn:"On", pushOff:"Off", pushUnsupported:"Add to Home Screen first", pushUnavailable:"Not available",
+   iPushOn:"Turn on notifications", pushDenied:"Notifications are blocked for this app.", pushFailed:"Could not turn on notifications.",
    waiting:"Waiting for approval", more:function(n){return "+" + n + " more";},
    asksToRun:"asks to run", asksToWrite:"asks to write", asksToSend:"wants to send this out",
    asksToDelegate:"asks to take over", asksToForward:"asks to use a tool Fylane cannot check",
@@ -287,7 +292,9 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    pFailed:"联系不上电脑，请稍后再试。",
    iListening:"监听中", iOffline:"重新连接中…", iTitle:"没有等待的审批",
    iLede:"有审批时会出现在这里。",
-   sDevice:"这台设备", sUntil:"配对有效至",
+   sDevice:"这台设备", sUntil:"配对有效至", sPush:"通知",
+   pushOn:"已开启", pushOff:"未开启", pushUnsupported:"先添加到主屏幕", pushUnavailable:"不可用",
+   iPushOn:"开启通知", pushDenied:"通知权限已被拒绝。", pushFailed:"没能开启通知。",
    waiting:"等待批准", more:function(n){return "还有 " + n + " 条";},
    asksToRun:"请求执行", asksToWrite:"请求写入", asksToSend:"请求发送出去",
    asksToDelegate:"请求接管工作区", asksToForward:"请求调用 Fylane 无法核验的工具",
@@ -585,7 +592,56 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    setTimeout(poll, backoff * 1000);
   });
  }
- function start() { polling = true; paint(); if (!current) show("idle"); poll(); }
+ function start() { polling = true; paint(); if (!current) show("idle"); poll(); refreshPush(); }
+
+ // ── push: a wake-up when a prompt arrives, nothing more ───────────────
+ // The push carries no content; the service worker shows a fixed line and
+ // the page fetches the prompt, sealed, when it opens. iOS offers push only
+ // to a page installed on the home screen, so in a browser tab the row
+ // says so instead of offering a button.
+ var pushKey = null, pushEnabled = false;
+ function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
+ function paintPush(label) {
+  var d = T();
+  $("ipush").textContent = label || (pushEnabled ? d.pushOn : d.pushOff);
+  $("pushrow").hidden = !!label || pushEnabled || !pushKey;
+ }
+ function registerPush(sub) {
+  var j = sub.toJSON();
+  return signed(dev, "POST", "/v1/approver/push", JSON.stringify({endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth}))
+   .then(function (resp) { if (!resp.ok) throw new Error("push " + resp.status); pushEnabled = true; paintPush(); });
+ }
+ function refreshPush() {
+  if (!dev) return;
+  var d = T();
+  $("pusherr").hidden = true;
+  if (!pushSupported()) { paintPush(d.pushUnsupported); return; }
+  signed(dev, "GET", "/v1/approver/push", null).then(function (resp) { return resp.ok ? resp.json() : null; }).then(function (info) {
+   if (!info || !info.available) { paintPush(d.pushUnavailable); return; }
+   pushKey = info.key; pushEnabled = !!info.enabled;
+   return navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+    // A subscription the browser still holds but the computer forgot is
+    // handed over again; one the computer has but the browser lost is not
+    // a subscription any more.
+    if (sub && Notification.permission === "granted" && !pushEnabled) return registerPush(sub);
+    if (!sub) pushEnabled = false;
+    paintPush();
+   });
+  }).catch(function () { paintPush(); });
+ }
+ function enablePush() {
+  var d = T(), btn = $("pushon");
+  btn.disabled = true; $("pusherr").hidden = true;
+  Notification.requestPermission().then(function (perm) {
+   if (perm !== "granted") throw new Error("denied");
+   return navigator.serviceWorker.ready;
+  }).then(function (reg) {
+   return reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: unb64u(pushKey)});
+  }).then(registerPush).catch(function (e) {
+   $("pusherr").textContent = e && e.message === "denied" ? d.pushDenied : d.pushFailed; $("pusherr").hidden = false;
+  }).then(function () { btn.disabled = false; });
+ }
+ $("pushon").onclick = enablePush;
 
  // ── pairing ───────────────────────────────────────────────────────────
  function guessName() {

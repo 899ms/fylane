@@ -77,6 +77,7 @@ type Store interface {
 	GetApprover(context.Context, string) (*store.ApproverDevice, error)
 	ListApprovers(context.Context) ([]*store.ApproverDevice, error)
 	DeleteApprover(context.Context, string) error
+	SetApproverPush(ctx context.Context, id, endpoint string, p256dh, auth []byte) error
 }
 
 // Options wires a Service to the approval authority it answers for.
@@ -98,7 +99,11 @@ type Options struct {
 	// PublicURL is where the device reaches this Companion; the pairing
 	// address is built on it. Empty means no tunnel is up yet.
 	PublicURL func() string
-	Log       *slog.Logger
+	// Push, when set, wakes a subscribed phone when a prompt arrives (V-T5).
+	// Nil means the feature is absent: the page still works, it just has
+	// to be open.
+	Push Pusher
+	Log  *slog.Logger
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -346,6 +351,8 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/approver/claim", s.handleClaim)
 	mux.HandleFunc("GET /v1/approver/inbox", s.handleInbox)
 	mux.HandleFunc("POST /v1/approver/answer", s.handleAnswer)
+	mux.HandleFunc("GET /v1/approver/push", s.handlePushInfo)
+	mux.HandleFunc("POST /v1/approver/push", s.handlePushSet)
 	return mux
 }
 

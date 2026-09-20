@@ -169,6 +169,7 @@ func (a *App) Run(ctx context.Context) error {
 		notes.Approval(p.Request.Provider)
 		if approvers != nil {
 			approvers.Wake()
+			approvers.Notify()
 		}
 		if a.Ask != nil {
 			go a.Ask(p, approvals.Resolve)

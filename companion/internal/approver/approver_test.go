@@ -39,6 +39,7 @@ type rig struct {
 	svc    *Service
 	appr   *approval.Service
 	logBuf *bytes.Buffer
+	push   *fakePush
 	mu     sync.Mutex
 	clock  time.Time
 	asked  chan *approval.Pending
@@ -53,7 +54,7 @@ func newRig(t *testing.T) *rig {
 	}
 	t.Cleanup(func() { st.Close() })
 	r := &rig{t: t, logBuf: &bytes.Buffer{}, clock: time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC),
-		asked: make(chan *approval.Pending, 8)}
+		asked: make(chan *approval.Pending, 8), push: newFakePush(t)}
 	r.appr, err = approval.New(approval.ModeSafe, approval.DefaultBudgets(), func(p *approval.Pending) {
 		r.asked <- p
 		r.svc.Wake()
@@ -76,6 +77,7 @@ func newRig(t *testing.T) *rig {
 		},
 		Signer:    signer,
 		PublicURL: func() string { return "https://core.example" },
+		Push:      r.push,
 		Log:       slog.New(slog.NewTextHandler(r.logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Now:       r.now,
 	})
