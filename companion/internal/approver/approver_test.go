@@ -71,7 +71,8 @@ func newRig(t *testing.T) *rig {
 		Resolve: r.appr.Resolve,
 		View: func(p *approval.Pending) any {
 			return map[string]any{"change_set_id": p.Request.ChangeSetID, "summary": p.Request.Summary,
-				"operations": p.Request.Operations}
+				"operations": p.Request.Operations, "provider": p.Request.Provider, "kind": p.Request.Kind,
+				"created_at": p.CreatedAt, "workspace_name": p.Request.WorkspaceName}
 		},
 		Signer:    signer,
 		PublicURL: func() string { return "https://core.example" },

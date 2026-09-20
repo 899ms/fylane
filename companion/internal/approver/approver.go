@@ -333,10 +333,11 @@ func (s *Service) wakeCh() <-chan struct{} {
 	return s.wake
 }
 
-// Handler serves the public surface: claim, inbox, answer. Mount it on the
-// direct-mode mux; the page the device runs is mounted beside it.
+// Handler serves the public surface: the page a device runs, and the API
+// it talks to — claim, inbox, answer. Mount it on the direct-mode mux.
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
+	s.PageRoutes(mux)
 	mux.HandleFunc("POST /v1/approver/claim", s.handleClaim)
 	mux.HandleFunc("GET /v1/approver/inbox", s.handleInbox)
 	mux.HandleFunc("POST /v1/approver/answer", s.handleAnswer)

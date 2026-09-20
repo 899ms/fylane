@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fylane">
+<link rel="manifest" href="/approver/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/approver/icon.png">
+<title>Fylane Approver</title>
+<style nonce="{{nonce}}">
+:root{
+ --fy-bg:#F4F1E9;--fy-bg2:#EFEBE1;--fy-tint:rgba(31,33,28,.035);--fy-raised:#FCFBF7;
+ --fy-ink:#1F211C;--fy-ink2:#33362F;--fy-muted:#6A6E63;--fy-faint:#7B7F71;
+ --fy-rule:rgba(31,33,28,.12);--fy-rule2:rgba(31,33,28,.06);--fy-surf:rgba(31,33,28,.045);
+ --fy-sage:#63805A;--fy-amber:#A87A33;--fy-brick:#9C4E36;--fy-brickSoft:rgba(156,78,54,.1);
+ --sans:-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,"Noto Sans SC",sans-serif;
+ --serif:ui-serif,"Iowan Old Style","Songti SC","Noto Serif SC",Georgia,serif;
+ --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
+}
+:root[data-fy="dark"]{
+ --fy-bg:#171915;--fy-bg2:#1C1E1A;--fy-tint:rgba(234,236,228,.045);--fy-raised:#262922;
+ --fy-ink:#ECEEE6;--fy-ink2:#D3D6CC;--fy-muted:#979B8E;--fy-faint:#8D9184;
+ --fy-rule:rgba(234,236,228,.14);--fy-rule2:rgba(234,236,228,.07);--fy-surf:rgba(234,236,228,.05);
+ --fy-sage:#9EB98F;--fy-amber:#D0A45F;--fy-brick:#CE8768;--fy-brickSoft:rgba(206,135,104,.14);
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;min-height:100%}
+body{background:var(--fy-bg);color:var(--fy-ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;
+ display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
+body::before{content:"";position:fixed;inset:0 0 auto 0;height:260px;pointer-events:none;
+ background:linear-gradient(var(--fy-bg2),transparent)}
+.wrap{position:relative;flex:1;display:flex;flex-direction:column;padding:0 22px;
+ padding-left:max(22px,env(safe-area-inset-left));padding-right:max(22px,env(safe-area-inset-right))}
+.bar{display:flex;align-items:center;gap:12px;height:44px;margin-top:max(18px,env(safe-area-inset-top));flex:none}
+.brand{display:flex;align-items:center;gap:9px;font:500 13px/1 var(--sans)}
+.gate{display:flex;gap:3px;align-items:center}
+.gate i{width:2px;height:13px;border-radius:2px;background:var(--fy-ink)}
+.gate i:last-child{height:9px}
+.eyebrow{font:400 11px/1 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--fy-faint)}
+.sp{flex:1}
+.lang{display:flex;gap:2px}
+.lang button,.theme{border:0;background:transparent;cursor:pointer;font:400 12px/1 var(--sans);
+ color:var(--fy-faint);padding:6px 8px;border-radius:6px}
+.lang button[aria-pressed="true"]{color:var(--fy-ink)}
+.sep{width:1px;height:14px;background:var(--fy-rule)}
+main{flex:1;display:flex;flex-direction:column;justify-content:center;padding:16px 0 28px}
+section{animation:fyUp .38s cubic-bezier(.2,.8,.24,1) both}
+@keyframes fyUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:var(--fy-ink);text-wrap:balance}
+.lede{margin:12px 0 0;font:400 14.5px/1.65 var(--sans);color:var(--fy-muted);text-wrap:pretty}
+.tag{display:flex;align-items:center;gap:9px;font:400 12px/1 var(--sans);color:var(--fy-ink2)}
+.tag i{width:7px;height:7px;border-radius:5px;background:var(--fy-amber);flex:none}
+.tag[data-tone="sage"] i{background:var(--fy-sage)}
+.tag[data-tone="brick"] i{background:var(--fy-brick)}
+.tag[data-tone="faint"] i{background:var(--fy-rule)}
+.tag[data-pulse="1"] i{animation:fyPulse 2.2s ease-in-out infinite}
+@keyframes fyPulse{0%,100%{opacity:1}50%{opacity:.45}}
+.tag .when{color:var(--fy-faint);font-variant-numeric:tabular-nums}
+.tag .more{color:var(--fy-faint)}
+.band{margin:20px -22px 0;padding:16px 22px 18px;background:var(--fy-tint);display:flex;gap:16px}
+.gate2{flex:none;display:flex;gap:5px;padding-top:3px;transition:gap .26s cubic-bezier(.2,.8,.24,1)}
+.gate2 i{width:2px;height:44px;border-radius:2px;background:var(--fy-ink);transition:background .26s}
+.gate2[data-open="true"]{gap:13px}
+.gate2[data-open="true"] i{background:var(--fy-faint)}
+.cmd{font:400 15px/1.5 var(--mono);color:var(--fy-ink);word-break:break-word;min-width:0}
+.meta{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap;font-size:12.5px}
+.meta .dir{font:400 12.5px/1.4 var(--mono);color:var(--fy-muted);word-break:break-all}
+.meta .risk{color:var(--fy-sage)}.meta .risk[data-rule="1"]{color:var(--fy-brick)}
+.meta .tool{font:400 12px/1.4 var(--mono);color:var(--fy-faint)}
+.vline{flex:none;width:1px;height:11px;background:var(--fy-rule)}
+.note{margin-top:10px;font:400 12.5px/1.5 var(--sans);color:var(--fy-muted)}
+.note[data-tone="amber"]{color:var(--fy-amber)}
+.detail{display:grid;grid-template-columns:84px minmax(0,1fr);gap:9px 14px;margin-top:20px;padding-top:16px;
+ border-top:1px solid var(--fy-rule2);font-size:12.5px}
+.detail dt{margin:0;color:var(--fy-faint);letter-spacing:.06em;font-size:10.5px;text-transform:uppercase;padding-top:2px}
+.detail dd{margin:0;color:var(--fy-ink2);word-break:break-word;min-width:0}
+.detail .mono{font-family:var(--mono)}
+.file{margin-bottom:10px}
+.file .row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.file .op{font:500 12px/1 var(--mono);color:var(--fy-faint)}
+.file .path{font:400 12.5px/1.4 var(--mono);word-break:break-all}
+.file .flag{font-size:12.5px;color:var(--fy-brick)}
+.diff{margin:8px 0 0;padding:0 0 0 12px;border-left:1px solid var(--fy-rule);font:400 12px/1.7 var(--mono);
+ color:var(--fy-muted);white-space:pre-wrap;overflow-x:auto;max-height:260px;word-break:break-all}
+.diff .add{color:var(--fy-sage)}.diff .del{color:var(--fy-brick)}.diff .hd{color:var(--fy-faint)}
+.actions{display:flex;flex-direction:column;gap:10px;margin-top:26px}
+.actions .row{display:flex;align-items:center;gap:10px}
+.primary{position:relative;display:inline-flex;align-items:center;justify-content:center;border:0;
+ background:var(--fy-ink);color:var(--fy-bg);height:48px;padding:0 22px;border-radius:10px;cursor:pointer;
+ font:500 14.5px/1 var(--sans);letter-spacing:.01em;width:100%;transition:opacity .14s}
+.primary:disabled{opacity:.45}
+.primary[data-tone="amber"]{background:var(--fy-amber)}
+.outline{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--fy-rule);
+ background:transparent;color:var(--fy-ink2);height:42px;padding:0 16px;border-radius:9px;cursor:pointer;
+ font:400 13.5px/1 var(--sans);flex:1}
+.outline:disabled{opacity:.45}
+.reject{border:0;background:transparent;color:var(--fy-faint);height:42px;padding:0 14px;border-radius:9px;
+ cursor:pointer;font:400 13.5px/1 var(--sans);flex:1}
+.reject:disabled{opacity:.45}
+.field{margin-top:20px}
+.field label{display:block;font:400 11px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--fy-faint);margin-bottom:8px}
+.field input{width:100%;height:46px;border:1px solid var(--fy-rule);border-radius:9px;background:var(--fy-raised);
+ color:var(--fy-ink);padding:0 14px;font:400 15px/1 var(--sans)}
+.field input:focus{outline:2px solid var(--fy-ink);outline-offset:1px}
+.err{margin:12px 0 0;font:400 12.5px/1.55 var(--sans);color:var(--fy-brick)}
+.trust{display:grid;gap:14px;margin-top:26px;padding-top:18px;border-top:1px solid var(--fy-rule2)}
+.trust b{display:block;font:400 10.5px/1 var(--mono);letter-spacing:.1em;color:var(--fy-faint);margin-bottom:6px}
+.trust p{margin:0;font:400 12.5px/1.6 var(--sans);color:var(--fy-muted);text-wrap:pretty}
+.summary{margin-top:18px;padding-top:14px;border-top:1px solid var(--fy-rule2);display:grid;gap:8px}
+.summary div{display:flex;justify-content:space-between;gap:16px;font:400 12.5px/1.3 var(--sans)}
+.summary span:first-child{color:var(--fy-faint)}
+.foot{flex:none;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:16px 0 max(22px,env(safe-area-inset-bottom));
+ font:400 11.5px/1.5 var(--sans);color:var(--fy-faint);border-top:1px solid var(--fy-rule2)}
+.quiet{border:0;background:transparent;padding:0;cursor:pointer;font:400 12px/1 var(--sans);color:var(--fy-faint);
+ border-bottom:1px solid transparent}
+.quiet:hover{border-bottom-color:var(--fy-faint)}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <div class="bar">
+  <div class="brand"><span class="gate"><i></i><i></i></span><span>Fylane</span></div>
+  <span class="sep"></span>
+  <span class="eyebrow" data-k="eyebrow">Approver</span>
+  <span class="sp"></span>
+  <div class="lang"><button type="button" id="zh">中文</button><button type="button" id="en">EN</button></div>
+  <span class="sep"></span>
+  <button type="button" class="theme" id="theme" aria-label="Theme">◐</button>
+ </div>
+
+ <main>
+  <!-- The browser cannot do the cryptography this page needs. -->
+  <section id="unsupported" hidden>
+   <div class="tag" data-tone="brick"><i></i><span data-k="uTag">This browser cannot pair</span></div>
+   <h1 data-k="uTitle">A newer browser is needed</h1>
+   <p class="lede" data-k="uLede">This page keeps its keys in the browser and needs Web Crypto with X25519 and Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.</p>
+  </section>
+
+  <!-- Opened with no code and no pairing: nothing to do here yet. -->
+  <section id="nocode" hidden>
+   <div class="tag" data-tone="faint"><i></i><span data-k="nTag">Not paired</span></div>
+   <h1 data-k="nTitle">Pair from the computer</h1>
+   <p class="lede" data-k="nLede">Open Fylane on the computer that runs it, go to Settings → Approver devices, and scan the code it shows with this phone.</p>
+  </section>
+
+  <!-- A code arrived in the address: pair this device. -->
+  <section id="pair" hidden>
+   <div class="tag"><i></i><span data-k="pTag">Pairing</span></div>
+   <h1 data-k="pTitle">Answer approvals from this phone</h1>
+   <p class="lede" data-k="pLede">Give this device a name so the computer can list it. Two keys are made here and never leave the phone; the computer only learns their public halves.</p>
+   <div class="field"><label for="name" data-k="pName">Device name</label><input id="name" maxlength="64" autocomplete="off"></div>
+   <p class="err" id="perr" role="alert" hidden></p>
+   <div class="actions"><button type="button" class="primary" id="pgo" data-k="pGo">Pair this device</button></div>
+   <div class="trust">
+    <div><b>01</b><p data-k="t1">Every prompt is encrypted to this phone before it leaves the computer; the tunnel carries only ciphertext.</p></div>
+    <div><b>02</b><p data-k="t2">Each answer is signed here and is good once, for a minute. The computer still runs every check it always did.</p></div>
+    <div><b>03</b><p data-k="t3">The pairing lasts 30 days and can be withdrawn from the computer at any moment.</p></div>
+   </div>
+  </section>
+
+  <!-- Paired, nothing waiting. -->
+  <section id="idle" hidden>
+   <div class="tag" data-tone="sage" data-pulse="1" id="itag"><i></i><span id="istate" data-k="iListening">Listening</span></div>
+   <h1 data-k="iTitle">Nothing is waiting</h1>
+   <p class="lede" data-k="iLede">When a platform asks to write, run or send something, the prompt appears here and on the computer. Whichever answers first settles it.</p>
+   <div class="summary">
+    <div><span data-k="sDevice">This device</span><span id="iname"></span></div>
+    <div><span data-k="sUntil">Paired until</span><span id="iuntil"></span></div>
+   </div>
+  </section>
+
+  <!-- A prompt, in the desktop window's own words. -->
+  <section id="prompt" hidden>
+   <div class="tag"><i></i><span data-k="waiting">Waiting for approval</span><span class="when" id="pwhen"></span><span class="more" id="pmore" hidden></span></div>
+   <h1 id="ptitle"></h1>
+   <div class="band"><span class="gate2" id="pgate" data-open="false" aria-hidden="true"><i></i><i></i></span><div class="cmd" id="pcmd"></div></div>
+   <div class="meta">
+    <span class="dir" id="pdir"></span>
+    <span class="vline" id="priskline"></span><span class="risk" id="prisk"></span>
+    <span class="vline"></span><span class="tool" id="ptool"></span>
+   </div>
+   <div class="note" id="pgrant" hidden></div>
+   <dl class="detail" id="pdetail" hidden>
+    <dt data-k="mSource">Source</dt><dd id="dsource"></dd>
+    <dt data-k="mAsked">Asked at</dt><dd id="dasked"></dd>
+    <dt data-k="mDir">Directory</dt><dd class="mono" id="ddir"></dd>
+    <dt data-k="mBoundary">Boundary</dt><dd id="dbound"></dd>
+    <dt data-k="mNetwork" id="dnett">Network</dt><dd id="dnet"></dd>
+    <dt data-k="mID">Request</dt><dd class="mono" id="did"></dd>
+    <dt data-k="mChanges" id="dchangest">Changes</dt><dd id="dchanges"></dd>
+   </dl>
+   <div class="note" data-tone="amber" id="parmed" hidden></div>
+   <p class="err" id="aerr" role="alert" hidden></p>
+   <div class="actions">
+    <button type="button" class="primary" id="approve"></button>
+    <div class="row">
+     <button type="button" class="outline" id="details" data-k="details">Details</button>
+     <button type="button" class="reject" id="reject" data-k="reject">Reject</button>
+    </div>
+   </div>
+  </section>
+
+  <!-- The pairing ended: withdrawn on the computer, or 30 days passed. -->
+  <section id="gone" hidden>
+   <div class="tag" data-tone="brick"><i></i><span id="gtag"></span></div>
+   <h1 id="gtitle"></h1>
+   <p class="lede" data-k="gLede">Scan a new code from the computer to pair again. The keys this phone held are discarded.</p>
+   <div class="actions"><button type="button" class="outline" id="gclear" data-k="gClear">Forget this pairing</button></div>
+  </section>
+ </main>
+
+ <div class="foot"><span data-k="fLocal">Fylane · decided here, executed on the computer</span><span class="sp"></span><button type="button" class="quiet" id="forget" data-k="fForget" hidden>Forget this pairing</button></div>
+</div>
+<script nonce="{{nonce}}">
+(function () {
+ "use strict";
+ var D = {
+  en: {
+   eyebrow:"Approver", uTag:"This browser cannot pair", uTitle:"A newer browser is needed",
+   uLede:"This page keeps its keys in the browser and needs Web Crypto with X25519 and Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.",
+   nTag:"Not paired", nTitle:"Pair from the computer",
+   nLede:"Open Fylane on the computer that runs it, go to Settings → Approver devices, and scan the code it shows with this phone.",
+   pTag:"Pairing", pTitle:"Answer approvals from this phone",
+   pLede:"Give this device a name so the computer can list it. Two keys are made here and never leave the phone; the computer only learns their public halves.",
+   pName:"Device name", pGo:"Pair this device", pBusy:"Pairing…",
+   pBadCode:"That code is no longer valid. Generate a new one on the computer and scan again.",
+   pFailed:"Could not reach the computer. Check that it is online, then try again.",
+   t1:"Every prompt is encrypted to this phone before it leaves the computer; the tunnel carries only ciphertext.",
+   t2:"Each answer is signed here and is good once, for a minute. The computer still runs every check it always did.",
+   t3:"The pairing lasts 30 days and can be withdrawn from the computer at any moment.",
+   iListening:"Listening", iOffline:"Reconnecting…", iTitle:"Nothing is waiting",
+   iLede:"When a platform asks to write, run or send something, the prompt appears here and on the computer. Whichever answers first settles it.",
+   sDevice:"This device", sUntil:"Paired until",
+   waiting:"Waiting for approval", more:function(n){return "+" + n + " more";},
+   asksToRun:"asks to run", asksToWrite:"asks to write", asksToSend:"wants to send this out",
+   asksToDelegate:"asks to take over", asksToForward:"asks to use a tool Fylane cannot check",
+   defaultWhat:"Write to the workspace", ordinary:"Ordinary command",
+   allow:"Approve", allowHere:"Allow in this folder", allowAgent:function(h){return "Approve for " + h + " h";},
+   confirmDelete:"Delete it all", details:"Details", hideDetails:"Hide details", reject:"Reject", sending:"Sending…",
+   delegationGrant:function(h){return "Approving lets this agent keep working in this folder for " + h + " hours without asking again. Withdraw that any time in Settings.";},
+   mSource:"Source", mAsked:"Asked at", mDir:"Directory", mBoundary:"Boundary", mNetwork:"Network", mID:"Request", mChanges:"Changes",
+   viaBrowser:function(w){return w + " · browser session";},
+   safetyDefault:"It runs inside the granted folder, with a timeout and an output cap, and it is recorded either way.",
+   netAllowed:"can reach the network", netDenied:"no network", netPartial:"no TCP; DNS and QUIC still leave", netUnbounded:"asked for, this machine cannot",
+   opRecursive:"the whole directory and everything in it", opSensitive:"sensitive file",
+   opBeyondUndo:"too large for the recycle area — this one may not come back",
+   opTree:function(files,size){return files + " files, " + size;}, opTreeAtLeast:function(files,size){return "at least " + files + " files, " + size;},
+   aGone:"Already answered on the computer.", aFailed:"Could not send the answer. Try again.",
+   gRevoked:"Pairing withdrawn", gRevokedTitle:"The computer no longer accepts this phone",
+   gExpired:"Pairing expired", gExpiredTitle:"30 days have passed since this phone was paired",
+   gLede:"Scan a new code from the computer to pair again. The keys this phone held are discarded.",
+   gClear:"Forget this pairing", fLocal:"Fylane · decided here, executed on the computer", fForget:"Forget this pairing",
+   tools:{command:"exec", disclosure:"read", delegation:"code_task", write:"write", proxy:"proxy"}
+  },
+  zh: {
+   eyebrow:"审批设备", uTag:"这个浏览器无法配对", uTitle:"需要更新的浏览器",
+   uLede:"这一页把密钥留在浏览器里，需要支持 X25519 与 Ed25519 的 Web Crypto：Safari 17、Chrome 137 或 Firefox 130 及以上。请换一个浏览器打开。",
+   nTag:"尚未配对", nTitle:"在电脑上发起配对",
+   nLede:"打开运行 Fylane 的那台电脑，进入 设置 → 审批设备，用这部手机扫描它显示的二维码。",
+   pTag:"配对中", pTitle:"用这部手机回答审批",
+   pLede:"给这台设备起个名字，方便在电脑上认出它。两把密钥在这里生成、永不离开手机；电脑只拿到公钥。",
+   pName:"设备名称", pGo:"配对这台设备", pBusy:"配对中…",
+   pBadCode:"这个配对码已失效。回到电脑重新生成一个，再扫一次。",
+   pFailed:"联系不上电脑。确认它在线后再试。",
+   t1:"每一条提示在离开电脑前都已加密给这部手机；隧道上只有密文。",
+   t2:"每一次作答在这里签名，只用一次、一分钟内有效。电脑上该做的检查一样不少。",
+   t3:"配对有效 30 天，随时可以在电脑上收回。",
+   iListening:"监听中", iOffline:"重新连接中…", iTitle:"没有等待的审批",
+   iLede:"平台请求写入、执行或发送时，提示会同时出现在这里和电脑上。谁先作答就以谁为准。",
+   sDevice:"这台设备", sUntil:"配对有效至",
+   waiting:"等待批准", more:function(n){return "还有 " + n + " 条";},
+   asksToRun:"请求执行", asksToWrite:"请求写入", asksToSend:"请求发送出去",
+   asksToDelegate:"请求接管工作区", asksToForward:"请求调用 Fylane 无法核验的工具",
+   defaultWhat:"写入工作区", ordinary:"普通命令",
+   allow:"批准执行", allowHere:"授权此工作区", allowAgent:function(h){return "批准，" + h + " 小时内不再问";},
+   confirmDelete:"全部删除", details:"查看详情", hideDetails:"收起详情", reject:"拒绝", sending:"发送中…",
+   delegationGrant:function(h){return "批准后 " + h + " 小时内，这个 agent 在这个目录里接管不再询问。随时可在设置里撤回。";},
+   mSource:"来源", mAsked:"请求时间", mDir:"工作目录", mBoundary:"边界", mNetwork:"网络", mID:"请求 ID", mChanges:"写入内容",
+   viaBrowser:function(w){return w + " · 浏览器会话";},
+   safetyDefault:"它在授权目录里执行，有超时和输出上限，无论结果如何都会被记录。",
+   netAllowed:"可以联网", netDenied:"不能联网", netPartial:"已拒 TCP；DNS 与 QUIC 仍会外发", netUnbounded:"已要求，这台机器做不到",
+   opRecursive:"整个目录及其中的全部内容", opSensitive:"敏感文件",
+   opBeyondUndo:"超出回收区容量 —— 这一次可能撤不回来",
+   opTree:function(files,size){return files + " 个文件，" + size;}, opTreeAtLeast:function(files,size){return "至少 " + files + " 个文件，" + size;},
+   aGone:"已在电脑上作答。", aFailed:"作答没有送出，请再试一次。",
+   gRevoked:"配对已收回", gRevokedTitle:"电脑不再接受这部手机的作答",
+   gExpired:"配对已到期", gExpiredTitle:"距离配对已过去 30 天",
+   gLede:"回到电脑重新扫码即可再次配对。这部手机上的密钥会被丢弃。",
+   gClear:"忘掉这次配对", fLocal:"Fylane · 在这里决定，在电脑上执行", fForget:"忘掉这次配对",
+   tools:{command:"exec", disclosure:"read", delegation:"code_task", write:"write", proxy:"proxy"}
+  }
+ };
+ var PROVIDERS = {chatgpt:"ChatGPT", claude:"Claude", grok:"Grok", gemini:"Gemini"};
+ var lang = (navigator.language || "en").toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+ var root = document.documentElement;
+ function $(id) { return document.getElementById(id); }
+ function T() { return D[lang]; }
+
+ // Appearance follows the system, overridable here like the desktop window.
+ var mq = window.matchMedia("(prefers-color-scheme: dark)"), forced = null;
+ function theme() { root.setAttribute("data-fy", (forced === null ? mq.matches : forced) ? "dark" : "light"); }
+ mq.addEventListener("change", function () { if (forced === null) theme(); });
+ $("theme").onclick = function () { forced = !(forced === null ? mq.matches : forced); theme(); };
+ theme();
+
+ // ── bytes ────────────────────────────────────────────────────────────
+ var enc = new TextEncoder();
+ function b64u(bytes) {
+  var s = ""; bytes = new Uint8Array(bytes);
+  for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+ }
+ function unb64u(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "=";
+  var bin = atob(s), out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+ }
+ function hex(bytes) {
+  var out = ""; bytes = new Uint8Array(bytes);
+  for (var i = 0; i < bytes.length; i++) out += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+  return out;
+ }
+ function concat(a, b) { var out = new Uint8Array(a.length + b.length); out.set(a, 0); out.set(b, a.length); return out; }
+ function randomToken(n) { var b = new Uint8Array(n); crypto.getRandomValues(b); return b64u(b); }
+
+ // ── storage: the pairing, keys included, lives in IndexedDB ──────────
+ function db() {
+  return new Promise(function (res, rej) {
+   var req = indexedDB.open("fylane-approver", 1);
+   req.onupgradeneeded = function () { req.result.createObjectStore("device"); };
+   req.onsuccess = function () { res(req.result); };
+   req.onerror = function () { rej(req.error); };
+  });
+ }
+ function loadDevice() {
+  return db().then(function (d) {
+   return new Promise(function (res, rej) {
+    var r = d.transaction("device").objectStore("device").get("me");
+    r.onsuccess = function () { res(r.result || null); }; r.onerror = function () { rej(r.error); };
+   });
+  });
+ }
+ function saveDevice(dev) {
+  return db().then(function (d) {
+   return new Promise(function (res, rej) {
+    var tx = d.transaction("device", "readwrite");
+    if (dev) tx.objectStore("device").put(dev, "me"); else tx.objectStore("device").delete("me");
+    tx.oncomplete = function () { res(); }; tx.onerror = function () { rej(tx.error); };
+   });
+  });
+ }
+
+ // ── crypto: what the Go side seals and verifies, mirrored exactly ──────
+ var REQ_TAG = "fylane-approver-request-v1", ENV_TAG = "fylane-approver-envelope-v1", KDF_INFO = "fylane-approver-v1";
+ var skew = 0; // server clock minus ours, from Date headers
+ function noteClock(resp) {
+  var d = resp.headers.get("Date"); if (!d) return;
+  var t = Date.parse(d); if (!isNaN(t)) skew = Math.round((t - Date.now()) / 1000);
+ }
+ function sha256(bytes) { return crypto.subtle.digest("SHA-256", bytes); }
+ function signed(dev, method, path, body) {
+  var bytes = body ? enc.encode(body) : new Uint8Array(0);
+  return sha256(bytes).then(function (sum) {
+   var ts = String(Math.floor(Date.now() / 1000) + skew), nonce = randomToken(16);
+   var msg = enc.encode([REQ_TAG, method, path, ts, nonce, hex(sum)].join("\n"));
+   return crypto.subtle.sign("Ed25519", dev.signKey, msg).then(function (sig) {
+    var headers = {"Authorization": "Fylane-Approver " + [dev.id, ts, nonce, b64u(sig)].join(":")};
+    if (body) headers["Content-Type"] = "application/json";
+    return fetch(path + (method === "GET" && path.indexOf("inbox") > 0 ? "?wait=25" : ""), {method: method, headers: headers, body: body || undefined, cache: "no-store"});
+   });
+  });
+ }
+ function open(dev, e) {
+  var epk = unb64u(e.epk), nonce = unb64u(e.nonce), ct = unb64u(e.ct), sig = unb64u(e.sig);
+  var msg = enc.encode([ENV_TAG, dev.id, e.handle, e.epk, e.nonce, e.ct].join("\n"));
+  return crypto.subtle.importKey("raw", dev.corePub, {name: "Ed25519"}, false, ["verify"]).then(function (pub) {
+   return crypto.subtle.verify("Ed25519", pub, sig, msg);
+  }).then(function (ok) {
+   if (!ok) throw new Error("envelope not from the paired computer");
+   return crypto.subtle.importKey("raw", epk, {name: "X25519"}, false, []);
+  }).then(function (epub) {
+   return crypto.subtle.deriveBits({name: "X25519", public: epub}, dev.boxKey, 256);
+  }).then(function (shared) {
+   return crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+  }).then(function (hk) {
+   return crypto.subtle.deriveKey({name: "HKDF", hash: "SHA-256", salt: concat(epk, dev.boxPub), info: enc.encode(KDF_INFO)},
+    hk, {name: "AES-GCM", length: 256}, false, ["decrypt"]);
+  }).then(function (key) {
+   return crypto.subtle.decrypt({name: "AES-GCM", iv: nonce, additionalData: enc.encode(dev.id + "\n" + e.handle)}, key, ct);
+  }).then(function (plain) { return JSON.parse(new TextDecoder().decode(plain)); });
+ }
+ function makeKeys() {
+  return Promise.all([
+   crypto.subtle.generateKey({name: "Ed25519"}, false, ["sign"]),
+   crypto.subtle.generateKey({name: "X25519"}, false, ["deriveBits"])
+  ]).then(function (pairs) {
+   return Promise.all([crypto.subtle.exportKey("raw", pairs[0].publicKey), crypto.subtle.exportKey("raw", pairs[1].publicKey)])
+    .then(function (pubs) { return {signKey: pairs[0].privateKey, boxKey: pairs[1].privateKey, signPub: new Uint8Array(pubs[0]), boxPub: new Uint8Array(pubs[1])}; });
+  });
+ }
+ function supported() {
+  if (!window.crypto || !crypto.subtle || !window.indexedDB) return Promise.resolve(false);
+  return makeKeys().then(function () { return true; }, function () { return false; });
+ }
+
+ // ── states ───────────────────────────────────────────────────────────
+ var SECTIONS = ["unsupported", "nocode", "pair", "idle", "prompt", "gone"];
+ var state = "idle", dev = null, prompts = [], current = null, armed = false, detailsOpen = false, busy = false;
+ function show(name) { state = name; SECTIONS.forEach(function (s) { $(s).hidden = s !== name; }); $("forget").hidden = !dev || name === "gone"; }
+
+ function paint() {
+  var d = T(); root.lang = lang;
+  var nodes = document.querySelectorAll("[data-k]");
+  for (var i = 0; i < nodes.length; i++) { var k = nodes[i].getAttribute("data-k"); if (typeof d[k] === "string") nodes[i].textContent = d[k]; }
+  $("zh").setAttribute("aria-pressed", lang === "zh" ? "true" : "false");
+  $("en").setAttribute("aria-pressed", lang === "en" ? "true" : "false");
+  if (dev) { $("iname").textContent = dev.name; $("iuntil").textContent = new Date(dev.expiresAt).toLocaleDateString(lang === "zh" ? "zh-CN" : "en-US"); }
+  if (current) renderPrompt();
+ }
+ $("zh").onclick = function () { lang = "zh"; paint(); };
+ $("en").onclick = function () { lang = "en"; paint(); };
+
+ function who(p) { var raw = p.provider || ""; return PROVIDERS[raw] || (raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "—"); }
+ function clock(iso) { var t = new Date(iso); if (isNaN(t.getTime())) return "—"; return (t.getHours() < 10 ? "0" : "") + t.getHours() + ":" + (t.getMinutes() < 10 ? "0" : "") + t.getMinutes(); }
+ function humanBytes(n) { var u = ["B","KB","MB","GB","TB"], i = 0; n = Math.max(0, n || 0); while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i === 0 || n >= 100 ? Math.round(n) : Math.round(n * 10) / 10) + " " + u[i]; }
+ var OPS = {create: "+", update: "M", "delete": "−", move: "→", read: "↗"};
+ function asks(kind) { var d = T(); return {command: d.asksToRun, disclosure: d.asksToSend, delegation: d.asksToDelegate, proxy: d.asksToForward}[kind] || d.asksToWrite; }
+ function rowNotes(o) {
+  var d = T(), notes = [];
+  if (o.recursive_delete) {
+   var tree = o.tree;
+   if (!tree) notes.push(d.opRecursive);
+   else notes.push(tree.partial ? d.opTreeAtLeast(tree.files, humanBytes(tree.bytes)) : d.opTree(tree.files, humanBytes(tree.bytes)));
+  }
+  if (o.sensitive) notes.push(d.opSensitive);
+  if (o.beyond_undo) notes.push(d.opBeyondUndo);
+  return notes;
+ }
+ function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+ function renderPrompt() {
+  var p = current, d = T(), kind = p.kind || "write";
+  var ops = p.operations || [], cmd = (p.command || []);
+  var command = (kind === "command" || kind === "disclosure") && cmd.length ? cmd.join(" ") : (p.summary || d.defaultWhat);
+  var wipes = ops.some(function (o) { return o.recursive_delete; });
+  $("pwhen").textContent = "· " + clock(p.created_at);
+  $("pmore").hidden = prompts.length < 2; $("pmore").textContent = prompts.length > 1 ? "· " + d.more(prompts.length - 1) : "";
+  $("ptitle").textContent = who(p) + " " + asks(kind);
+  $("pcmd").textContent = command;
+  $("pdir").textContent = p.dir || "/";
+  var risky = !!(p.rule && p.reason), showRisk = risky || kind === "command";
+  $("priskline").hidden = !showRisk; $("prisk").hidden = !showRisk;
+  $("prisk").textContent = risky ? p.reason : d.ordinary; $("prisk").setAttribute("data-rule", risky ? "1" : "0");
+  $("ptool").textContent = d.tools[kind] || kind;
+  var grantNote = kind === "delegation" && p.grant;
+  $("pgrant").hidden = !grantNote; if (grantNote) $("pgrant").textContent = d.delegationGrant(p.grant_hours || 0);
+  $("dsource").textContent = d.viaBrowser(who(p)); $("dasked").textContent = clock(p.created_at);
+  $("ddir").textContent = p.dir || "/"; $("dbound").textContent = p.reason || d.safetyDefault;
+  var net = (kind === "command" || kind === "delegation") ? (p.network || "") : "";
+  $("dnett").hidden = !net; $("dnet").hidden = !net;
+  $("dnet").textContent = {allowed: d.netAllowed, denied: d.netDenied, partial: d.netPartial, unbounded: d.netUnbounded}[net] || d.netAllowed;
+  $("dnet").style.color = net === "unbounded" ? "var(--fy-amber)" : "";
+  var id = p.change_set_id || ""; $("did").textContent = id.length > 16 ? id.slice(0, 16) : id;
+  var changes = $("dchanges"); changes.textContent = "";
+  var reviewable = kind === "write" && ops.length > 0;
+  $("dchangest").hidden = !reviewable; changes.hidden = !reviewable;
+  ops.forEach(function (o) {
+   var f = el("div", "file"), row = el("div", "row");
+   row.appendChild(el("span", "op", OPS[o.type] || "M"));
+   row.appendChild(el("span", "path", o.to ? o.path + " → " + o.to : o.path));
+   rowNotes(o).forEach(function (n) { row.appendChild(el("span", "flag", "· " + n)); });
+   f.appendChild(row);
+   if (o.diff) {
+    var pre = el("pre", "diff");
+    o.diff.split("\n").forEach(function (line, i) {
+     var cls = /^\+(?!\+\+)/.test(line) ? "add" : /^-(?!--)/.test(line) ? "del" : /^(@@|\+\+\+|---)/.test(line) ? "hd" : "";
+     pre.appendChild(el("span", cls, (i ? "\n" : "") + line));
+    });
+    f.appendChild(pre);
+   }
+   changes.appendChild(f);
+  });
+  $("pdetail").hidden = !detailsOpen; $("details").textContent = detailsOpen ? d.hideDetails : d.details;
+  $("parmed").hidden = !armed;
+  if (armed) $("parmed").textContent = ops.filter(function (o) { return o.recursive_delete; }).map(function (o) { return o.path + " — " + rowNotes(o).join("; "); }).join("  ·  ");
+  var approve = $("approve");
+  approve.textContent = busy ? d.sending : armed ? d.confirmDelete : (p.grant && kind === "delegation") ? d.allowAgent(p.grant_hours || 0) : p.grant ? d.allowHere : d.allow;
+  approve.setAttribute("data-tone", armed ? "amber" : "");
+  approve.disabled = busy; $("details").disabled = busy; $("reject").disabled = busy;
+  approve.onclick = function () { if (wipes && !armed) { armed = true; renderPrompt(); } else answer(true); };
+  $("pgate").setAttribute("data-open", "false");
+ }
+ $("details").onclick = function () { detailsOpen = !detailsOpen; renderPrompt(); };
+ $("reject").onclick = function () { answer(false); };
+
+ // Handles this phone already answered. A poll that was in flight when the
+ // answer went out can still deliver the prompt it just decided; it is not
+ // shown again.
+ var answered = {};
+ function setPrompts(list) {
+  prompts = list.filter(function (p) { return !answered[p.handle]; });
+  list = prompts;
+  var same = current && list.some(function (p) { return p.handle === current.handle; });
+  if (!same) { current = list[0] || null; armed = false; detailsOpen = false; $("aerr").hidden = true; }
+  else current = list.filter(function (p) { return p.handle === current.handle; })[0];
+  if (current) { renderPrompt(); show("prompt"); } else show("idle");
+ }
+
+ function answer(approved) {
+  if (busy || !current) return;
+  busy = true; $("aerr").hidden = true; renderPrompt();
+  if (approved) $("pgate").setAttribute("data-open", "true");
+  var handle = current.handle;
+  signed(dev, "POST", "/v1/approver/answer", JSON.stringify({handle: handle, approved: approved})).then(function (resp) {
+   noteClock(resp); busy = false;
+   if (resp.status === 401) return resp.json().then(function (b) { ended(b.error); });
+   if (resp.status === 404) { $("aerr").textContent = T().aGone; $("aerr").hidden = false; }
+   else if (!resp.ok) { $("aerr").textContent = T().aFailed; $("aerr").hidden = false; renderPrompt(); return; }
+   answered[handle] = true; current = null; setPrompts(prompts);
+  }, function () { busy = false; $("aerr").textContent = T().aFailed; $("aerr").hidden = false; renderPrompt(); });
+ }
+
+ function ended(why) {
+  var d = T(), expired = why === "expired";
+  $("gtag").textContent = expired ? d.gExpired : d.gRevoked; $("gtitle").textContent = expired ? d.gExpiredTitle : d.gRevokedTitle;
+  polling = false; show("gone");
+ }
+ function forget() { saveDevice(null).then(function () { dev = null; polling = false; location.hash = ""; location.reload(); }); }
+ $("gclear").onclick = forget; $("forget").onclick = forget;
+
+ // ── the inbox: one long poll after another ────────────────────────────
+ var polling = false, backoff = 0;
+ function poll() {
+  if (!polling) return;
+  signed(dev, "GET", "/v1/approver/inbox", null).then(function (resp) {
+   noteClock(resp);
+   if (resp.status === 401) return resp.json().then(function (b) { if (b.error === "revoked" || b.error === "expired") ended(b.error); else setTimeout(poll, 1500); });
+   if (!resp.ok) throw new Error("inbox " + resp.status);
+   return resp.json().then(function (body) {
+    backoff = 0; $("istate").textContent = T().iListening; $("itag").setAttribute("data-tone", "sage");
+    return Promise.all((body.prompts || []).map(function (e) {
+     return open(dev, e).then(function (p) { p.handle = e.handle; return p; }, function () { return null; });
+    })).then(function (list) { setPrompts(list.filter(Boolean)); setTimeout(poll, 0); });
+   });
+  }).catch(function () {
+   backoff = Math.min((backoff || 1) * 2, 10);
+   $("istate").textContent = T().iOffline; $("itag").setAttribute("data-tone", "amber");
+   setTimeout(poll, backoff * 1000);
+  });
+ }
+ function start() { polling = true; paint(); if (!current) show("idle"); poll(); }
+
+ // ── pairing ───────────────────────────────────────────────────────────
+ function guessName() {
+  var ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return "iPhone"; if (/iPad/.test(ua)) return "iPad"; if (/Android/.test(ua)) return "Android";
+  if (/Mac/.test(ua)) return "Mac"; if (/Windows/.test(ua)) return "Windows PC"; return "Phone";
+ }
+ function pair(code) {
+  var go = $("pgo"), d = T();
+  go.disabled = true; go.textContent = d.pBusy; $("perr").hidden = true;
+  makeKeys().then(function (k) {
+   return fetch("/v1/approver/claim", {method: "POST", headers: {"Content-Type": "application/json"}, cache: "no-store",
+    body: JSON.stringify({code: code, name: $("name").value.trim() || guessName(), sign_pub: b64u(k.signPub), box_pub: b64u(k.boxPub)})
+   }).then(function (resp) {
+    noteClock(resp);
+    if (resp.status === 404) throw new Error("bad_code");
+    if (!resp.ok) throw new Error("failed");
+    return resp.json();
+   }).then(function (res) {
+    dev = {id: res.device_id, name: $("name").value.trim() || guessName(), signKey: k.signKey, boxKey: k.boxKey,
+     boxPub: k.boxPub, corePub: unb64u(res.core_sign_pub), expiresAt: res.expires_at};
+    return saveDevice(dev);
+   });
+  }).then(function () { history.replaceState(null, "", location.pathname); start(); }, function (err) {
+   go.disabled = false; go.textContent = d.pGo;
+   $("perr").textContent = err.message === "bad_code" ? d.pBadCode : d.pFailed; $("perr").hidden = false;
+  });
+ }
+
+ // ── boot ──────────────────────────────────────────────────────────────
+ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/approver/sw.js", {scope: "/approver/"}).catch(function () {});
+ var code = (location.hash || "").replace(/^#/, "");
+ supported().then(function (ok) {
+  paint();
+  if (!ok) { show("unsupported"); return; }
+  return loadDevice().then(function (stored) {
+   if (code) {
+    $("name").value = guessName(); show("pair");
+    $("pgo").onclick = function () { pair(code); };
+    return;
+   }
+   if (!stored) { show("nocode"); return; }
+   dev = stored;
+   if (Date.parse(dev.expiresAt) < Date.now()) { ended("expired"); return; }
+   start();
+  });
+ });
+})();
+</script>
+</body></html>

@@ -14,7 +14,7 @@ import (
 // among them: that stays on the local control API.
 func TestApproverSurfaceIsMountedOnlyWhenSet(t *testing.T) {
 	_, _, bare := newTestServer(t)
-	for _, path := range []string{"/approver", "/v1/approver/inbox", "/v1/approver/claim"} {
+	for _, path := range []string{"/approver", "/approver/sw.js", "/v1/approver/inbox", "/v1/approver/claim"} {
 		resp, err := http.Get(bare.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -38,7 +38,7 @@ func TestApproverSurfaceIsMountedOnlyWhenSet(t *testing.T) {
 	}))
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
-	for _, path := range []string{"/approver", "/v1/approver/inbox"} {
+	for _, path := range []string{"/approver", "/approver/sw.js", "/v1/approver/inbox"} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -58,7 +58,7 @@ func TestApproverSurfaceIsMountedOnlyWhenSet(t *testing.T) {
 			t.Errorf("%s = %d; mounting the approver must not publish pairing", path, resp.StatusCode)
 		}
 	}
-	if len(seen) != 2 {
+	if len(seen) != 3 {
 		t.Fatalf("approver handler saw %v", seen)
 	}
 }

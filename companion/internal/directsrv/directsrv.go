@@ -158,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 	if s.approver != nil {
 		guarded := s.withIPLimit(ratelimit.New(5, 20), s.withAccessLog(s.approver))
 		mux.Handle("/approver", guarded)
+		mux.Handle("/approver/", guarded)
 		mux.Handle("/v1/approver/", guarded)
 	}
 	return mux
