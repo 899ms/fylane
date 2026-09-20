@@ -618,6 +618,21 @@ func (a *App) RevokeWorkspace(id string) (string, error) {
 	return a.call("POST", "/v1/workspaces/revoke", map[string]any{"id": id})
 }
 
+// Approver reads the paired approver devices and their recent answers.
+func (a *App) Approver() (string, error) {
+	return a.call("GET", "/v1/approver", nil)
+}
+
+// PairApprover mints the one-time code the settings page shows as a QR code.
+func (a *App) PairApprover() (string, error) {
+	return a.call("POST", "/v1/approver/pair", nil)
+}
+
+// RevokeApprover withdraws one device; the answer is the remaining list.
+func (a *App) RevokeApprover(id string) (string, error) {
+	return a.call("POST", "/v1/approver/revoke", map[string]any{"id": id})
+}
+
 // SetWorkspaceNetwork records whether the programs started for one workspace
 // may reach the network. It answers with the whole workspace list, because the
 // effective answer is not the setting: on a machine that cannot deny anything

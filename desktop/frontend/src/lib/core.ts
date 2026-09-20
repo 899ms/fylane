@@ -29,6 +29,9 @@ import {
   ResolvePairClaim,
   ResumeWorkspace,
   RevokeWorkspace,
+  Approver,
+  PairApprover,
+  RevokeApprover,
   OpenURL,
   OpenWorkspaceDir,
   RevokeCommandGrant,
@@ -270,6 +273,66 @@ export async function mintPairingCode(): Promise<PairingCodeInfo> {
     code: res.code ?? "",
     expires_in_seconds: res.expires_in_seconds ?? 0,
   };
+}
+
+// ── approver devices ────────────────────────────────────────────────────
+// A phone or another computer the user paired so approvals can be answered
+// where they are (D43). The Core keeps only the devices' public keys; this
+// window lists them, mints the code a new one pairs with, and withdraws.
+
+export interface ApproverDevice {
+  id: string;
+  name: string;
+  created_at: string;
+  expires_at: string;
+  expired: boolean;
+}
+
+/** One decision a device made, kept by the Core for a few minutes so the
+ *  window can say who answered a prompt it watched disappear. */
+export interface ApproverAnswer {
+  change_set_id: string;
+  device_id: string;
+  device_name: string;
+  approved: boolean;
+  at: string;
+}
+
+export interface ApproverInfo {
+  /** False where this Core has no public surface of its own to pair
+   *  through (relay mode); the section explains instead of offering. */
+  available: boolean;
+  devices: ApproverDevice[];
+  recent: ApproverAnswer[];
+}
+
+export const NO_APPROVER: ApproverInfo = { available: false, devices: [], recent: [] };
+
+export interface ApproverPairing {
+  code: string;
+  /** The address the phone opens; the code rides in its fragment. This is
+   *  what the QR code encodes. */
+  url: string;
+  expires_in_seconds: number;
+}
+
+export async function fetchApprover(): Promise<ApproverInfo> {
+  const res = JSON.parse(await Approver());
+  return {
+    available: res.available ?? false,
+    devices: res.devices ?? [],
+    recent: res.recent ?? [],
+  };
+}
+
+export async function pairApprover(): Promise<ApproverPairing> {
+  const res = JSON.parse(await PairApprover());
+  return { code: res.code ?? "", url: res.url ?? "", expires_in_seconds: res.expires_in_seconds ?? 0 };
+}
+
+export async function revokeApprover(id: string): Promise<ApproverInfo> {
+  const res = JSON.parse(await RevokeApprover(id));
+  return { available: res.available ?? false, devices: res.devices ?? [], recent: res.recent ?? [] };
 }
 
 export async function fetchApprovals(): Promise<Approval[]> {

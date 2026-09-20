@@ -185,6 +185,7 @@ function laneSnapshot() {
       approvals: [],
       changeSets: [],
       sources: [],
+      answers: [],
     };
   }
   return fx.snapshot();

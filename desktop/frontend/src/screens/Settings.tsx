@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   applyTunnel,
   cancelTunnelDownload,
@@ -8,6 +8,10 @@ import {
   fetchConnect,
   fetchPrefs,
   fetchStatus,
+  fetchApprover,
+  pairApprover,
+  revokeApprover,
+  NO_APPROVER,
   fetchDock,
   setDockHidden,
   mintPairingCode,
@@ -34,6 +38,8 @@ import {
   type ReadBoundaryInfo,
   type ConnectInfo,
   type PairingCodeInfo,
+  type ApproverInfo,
+  type ApproverPairing,
   type PrefsInfo,
   type TunnelProvider,
   type TunnelDownloadState,
@@ -56,6 +62,7 @@ import type { Theme } from "../lib/theme";
 import type { MachineView } from "../lib/poll";
 import { detectOS } from "../lib/platform";
 import { Jelly } from "../components/Jelly";
+import QRCode from "qrcode";
 
 // Settings (Fylane-V3, boards 08–12). One page, four sections, and each is
 // organised the way its content wants: three cells side by side for the
@@ -289,6 +296,10 @@ export interface SettingsDeps {
   cancelDownload: typeof cancelTunnelDownload;
   signOut: typeof signOutTunnel;
   mintCode: typeof mintPairingCode;
+  /** The approver devices (D43): list, pair, withdraw. */
+  approver: typeof fetchApprover;
+  pairApprover: typeof pairApprover;
+  revokeApprover: typeof revokeApprover;
   setNetwork: typeof setWorkspaceNetwork;
   status: typeof fetchStatus;
   setMode: typeof setWriteMode;
@@ -312,6 +323,9 @@ const CORE: SettingsDeps = {
   cancelDownload: cancelTunnelDownload,
   signOut: signOutTunnel,
   mintCode: mintPairingCode,
+  approver: fetchApprover,
+  pairApprover,
+  revokeApprover,
   setNetwork: setWorkspaceNetwork,
   status: fetchStatus,
   setMode: setWriteMode,
@@ -912,6 +926,7 @@ export function SettingsScreen({
           <p>{t("set.connectionNote")}</p>
         </div>
         <Connection tr={tr} deps={deps} onError={onError} />
+        <ApproverRows tr={tr} deps={deps} onError={onError} />
       </div>
 
       {/* ── privacy ──────────────────────────────────────────────────── */}
@@ -1458,6 +1473,193 @@ function RiskyRow({ tr }: { tr: Translator }) {
 }
 
 // ── connection ─────────────────────────────────────────────────────────────
+
+/** Approver devices (D43): the phones and other computers the user paired
+ *  from this page so a prompt can be answered where they are, not where the
+ *  Companion runs.
+ *
+ *  Pairing is a code shown here as a QR code and nowhere else: the code is
+ *  what proves the phone was held up to this screen. While one is on screen
+ *  the list is re-read every few seconds, so the phone that claims it
+ *  appears in the list and the code leaves with it — a code that stays up
+ *  after it was used would invite a second scan that can only fail.
+ *
+ *  Not in the design package: D43 ⑥ has it drawn in the connection
+ *  section's own language, an inset card of rows with a quiet action. */
+function ApproverRows({
+  tr,
+  deps,
+  onError,
+}: {
+  tr: Translator;
+  deps: SettingsDeps;
+  onError: (m: string) => void;
+}) {
+  const { t } = tr;
+  const [info, setInfo] = useState<ApproverInfo | null>(null);
+  const [pairing, setPairing] = useState<ApproverPairing | null>(null);
+  const [svg, setSvg] = useState("");
+  const [secs, setSecs] = useState(0);
+  const [minting, setMinting] = useState(false);
+  const [asking, setAsking] = useState("");
+  // How many devices there were when the code was minted; one more means
+  // the phone claimed it.
+  const before = useRef(0);
+
+  const load = useCallback(async () => {
+    try {
+      setInfo(await deps.approver());
+    } catch {
+      // An older Core has no such endpoint; the section then says the
+      // feature is not here rather than holding the page.
+      setInfo(NO_APPROVER);
+    }
+  }, [deps]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!pairing) {
+      setSvg("");
+      return;
+    }
+    let alive = true;
+    void QRCode.toString(pairing.url, {
+      type: "svg",
+      margin: 0,
+      errorCorrectionLevel: "M",
+      color: { dark: "#1F211C", light: "#0000" },
+    })
+      .then((s) => {
+        if (alive) setSvg(s);
+      })
+      .catch(() => {
+        if (alive) setSvg("");
+      });
+    const tick = window.setInterval(() => setSecs((s) => (s <= 0 ? 0 : s - 1)), 1000);
+    const watch = window.setInterval(() => void load(), 3000);
+    return () => {
+      alive = false;
+      window.clearInterval(tick);
+      window.clearInterval(watch);
+    };
+  }, [pairing, load]);
+
+  // The code leaves the screen with the phone that used it, or with its clock.
+  useEffect(() => {
+    if (pairing && ((info && info.devices.length > before.current) || secs <= 0)) {
+      setPairing(null);
+    }
+  }, [info, secs, pairing]);
+
+  const mint = async () => {
+    setMinting(true);
+    try {
+      before.current = info?.devices.length ?? 0;
+      const got = await deps.pairApprover();
+      setSecs(got.expires_in_seconds);
+      setPairing(got);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMinting(false);
+    }
+  };
+  const withdraw = async (id: string) => {
+    setAsking("");
+    try {
+      setInfo(await deps.revokeApprover(id));
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  if (info === null) {
+    return null;
+  }
+  const now = new Date();
+  const daysLeft = (iso: string) =>
+    Math.max(1, Math.round((new Date(iso).getTime() - now.getTime()) / 86_400_000));
+  const left = pairing ? codeLeft(secs) : null;
+  return (
+    <div className="fy-insetcard" style={{ marginTop: 14 }}>
+      <GroupHead text={t("set.approver")} help={t("set.approverNote")} id="fy-help-approver" />
+      {!info.available && (
+        <div className="fy-rule-row">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="fy-snote">{t("set.approverUnavailable")}</div>
+          </div>
+        </div>
+      )}
+      {info.available && info.devices.length === 0 && (
+        <div className="fy-rule-row">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="fy-snote">{t("set.approverNone")}</div>
+          </div>
+        </div>
+      )}
+      {info.devices.map((d) => (
+        <div className="fy-rule-row" key={d.id}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="fy-slabel">{d.name}</div>
+            <div
+              className="fy-snote"
+              style={{ color: d.expired ? "var(--fy-amber)" : undefined }}
+            >
+              {d.expired
+                ? t("set.approverExpiredLine")
+                : t("set.approverLine", {
+                    ago: agoShort(new Date(d.created_at).getTime(), now, tr),
+                    left: t("set.daysLeft", { n: daysLeft(d.expires_at) }),
+                  })}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="fy-smallbtn"
+            data-ask={asking === d.id ? "true" : undefined}
+            style={asking === d.id ? { color: "var(--fy-brick)" } : undefined}
+            onBlur={() => setAsking("")}
+            onClick={() => (asking === d.id ? void withdraw(d.id) : setAsking(d.id))}
+          >
+            {asking === d.id ? t("set.approverWithdrawAsk") : t("set.approverWithdraw")}
+          </button>
+        </div>
+      ))}
+      {info.available && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" className="fy-smallbtn" disabled={minting} onClick={() => void mint()}>
+            {pairing ? t("pairv3.again") : t("set.approverPair")}
+          </button>
+          {minting && <Jelly size={20} busyLabel={t("pairv3.minting")} />}
+          {pairing && left && (
+            <span style={{ fontSize: 11.5, color: "var(--fy-muted)" }}>{t("pairv3.left", { time: left })}</span>
+          )}
+        </div>
+      )}
+      {pairing && left && svg && (
+        <div style={{ display: "flex", gap: 18, alignItems: "flex-start", marginTop: 14, flexWrap: "wrap" }}>
+          {/* A light tile whatever the theme: a code drawn in the dark
+              theme's ink on the dark theme's ground does not scan. */}
+          <img
+            alt={t("set.approverScanAlt")}
+            width={168}
+            height={168}
+            style={{ flex: "none", padding: 10, borderRadius: 8, background: "#FCFBF7" }}
+            src={"data:image/svg+xml;utf8," + encodeURIComponent(svg)}
+          />
+          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+            <div className="fy-snote" style={{ color: "var(--fy-ink2)" }}>{t("set.approverScan")}</div>
+            <div className="fy-snote" style={{ marginTop: 8, font: "400 11.5px/1.5 var(--fy-mono)", wordBreak: "break-all" }}>
+              {pairing.url}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Connection({
   tr,

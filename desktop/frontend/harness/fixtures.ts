@@ -418,6 +418,26 @@ export const SETTINGS_DEPS: SettingsDeps = {
   cancelDownload: async () => CONNECT,
   signOut: async () => CONNECT,
   mintCode: async () => ({ code: "7K4M-2QB9", expires_in_seconds: 600 }),
+  // One phone paired last week, still good for three more.
+  approver: async () => ({
+    available: true,
+    devices: [
+      {
+        id: "apr_1",
+        name: "iPhone",
+        created_at: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+        expires_at: new Date(Date.now() + 23 * 86_400_000).toISOString(),
+        expired: false,
+      },
+    ],
+    recent: [],
+  }),
+  pairApprover: async () => ({
+    code: "c0de",
+    url: "https://demo.fylane.example/approver#c0de",
+    expires_in_seconds: 600,
+  }),
+  revokeApprover: async () => ({ available: true, devices: [], recent: [] }),
   // The remote machines' own Cores: one folder on vps-1 authorized a week
   // ago, the network switches answer as pressed.
   remote: (id) => {
@@ -489,6 +509,7 @@ export function snapshot(over: Partial<LaneSnapshot> = {}): LaneSnapshot {
     approvals: [],
     changeSets: CHANGE_SETS,
     sources: SOURCES,
+    answers: [],
     ...over,
   };
 }

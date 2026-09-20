@@ -58,6 +58,7 @@ function pollers(over: Partial<CorePollers> = {}): {
     workspaces: () =>
       note("workspaces", { workspaces: [WS], currentWorkspaceID: "ws_1" }),
     approvals: () => note("approvals", []),
+    approver: () => note("approver", { available: true, devices: [], recent: [] }),
     tasks: () => note("tasks", []),
     commandSettings: () =>
       note("commands", { rung: "workspace" as const, grants: [] }),
@@ -101,6 +102,7 @@ describe("pollCore", () => {
     await pollCore(deps);
     expect(asked.sort()).toEqual([
       "approvals",
+      "approver",
       "changeSets",
       "commands",
       "machines",
@@ -110,6 +112,17 @@ describe("pollCore", () => {
       "tasks",
       "workspaces",
     ]);
+  });
+
+  it("keeps the window up when the approver read fails", async () => {
+    // The echo is not load-bearing: a Core without the endpoint answers
+    // with an error, and that must not read as the Core being gone.
+    const { deps } = pollers({
+      approver: () => Promise.reject(new Error("404 page not found")),
+    });
+    const poll = await pollCore(deps);
+    expect(poll.snapshot.online).toBe(true);
+    expect(poll.snapshot.answers).toEqual([]);
   });
 
   it("picks the current workspace, falling back to the first granted one", async () => {

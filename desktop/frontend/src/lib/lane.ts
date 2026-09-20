@@ -1,5 +1,6 @@
 import type {
   Approval,
+  ApproverAnswer,
   ApprovalKind,
   ChangeSet,
   CoreStatusInfo,
@@ -34,6 +35,9 @@ export interface LaneSnapshot {
   approvals: Approval[];
   changeSets: ChangeSet[];
   sources: Source[];
+  /** Decisions paired devices made lately, so the lane can say a prompt
+   *  was answered on a phone rather than let it vanish unexplained. */
+  answers: ApproverAnswer[];
 }
 
 export const OFFLINE_SNAPSHOT: LaneSnapshot = {
@@ -43,7 +47,22 @@ export const OFFLINE_SNAPSHOT: LaneSnapshot = {
   approvals: [],
   changeSets: [],
   sources: [],
+  answers: [],
 };
+
+/** How long a device's answer is echoed on the calm scene. */
+export const ANSWER_ECHO_MS = 2 * 60_000;
+
+/** The freshest answer a device gave inside the echo window, or null. */
+export function recentAnswer(answers: ApproverAnswer[], now: Date): ApproverAnswer | null {
+  let best: ApproverAnswer | null = null;
+  for (const a of answers) {
+    const at = Date.parse(a.at);
+    if (Number.isNaN(at) || now.getTime() - at > ANSWER_ECHO_MS) continue;
+    if (!best || at > Date.parse(best.at)) best = a;
+  }
+  return best;
+}
 
 function providerOf(raw: string): Provider | null {
   const k = (raw || "").toLowerCase();

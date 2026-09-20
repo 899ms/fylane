@@ -199,12 +199,136 @@ function deps(over: Partial<SettingsDeps> = {}): SettingsDeps {
     cancelDownload: async () => connect(),
     signOut: async () => connect(),
     mintCode: async () => ({ code: "7K4M-2QB9", expires_in_seconds: 600 }),
+    approver: async () => ({ available: true, devices: [], recent: [] }),
+    pairApprover: async () => ({
+      code: "c0de",
+      url: "https://core.example/approver#c0de",
+      expires_in_seconds: 600,
+    }),
+    revokeApprover: async () => ({ available: true, devices: [], recent: [] }),
     remote: () => {
       throw new Error("no remote machines in this test");
     },
     ...over,
   };
 }
+
+describe("approver devices on the settings page", () => {
+  const phone = {
+    id: "apr_1",
+    name: "Pixel",
+    created_at: new Date(Date.now() - 3600_000).toISOString(),
+    expires_at: new Date(Date.now() + 29 * 86_400_000).toISOString(),
+    expired: false,
+  };
+
+  it("lists a paired phone, mints a code as a QR image, and withdraws in two presses", async () => {
+    const revoked: string[] = [];
+    draw(
+      <SettingsScreen
+        {...settingsProps}
+        deps={deps({
+          approver: async () => ({ available: true, devices: [phone], recent: [] }),
+          revokeApprover: async (id) => {
+            revoked.push(id);
+            return { available: true, devices: [], recent: [] };
+          },
+        })}
+      />,
+    );
+    await settle();
+    expect(text()).toContain("Pixel");
+    expect(text()).toContain("29 days left");
+
+    click(button("Pair a phone"));
+    await settle();
+    await settle();
+    const img = host.querySelector("img[alt='Pairing QR code']") as HTMLImageElement | null;
+    expect(img).not.toBeNull();
+    // The image is the address the phone opens, drawn as a code; the address
+    // itself is beside it for a phone that cannot scan.
+    expect(img?.src.startsWith("data:image/svg+xml")).toBe(true);
+    expect(text()).toContain("https://core.example/approver#c0de");
+
+    // First press asks, second withdraws — the same two steps as a folder.
+    click(button("Withdraw"));
+    expect(revoked).toEqual([]);
+    click(button("Withdraw now?"));
+    await settle();
+    expect(revoked).toEqual(["apr_1"]);
+    expect(text()).not.toContain("Pixel");
+  });
+
+  it("says why it cannot pair where the Core has no public address of its own", async () => {
+    draw(
+      <SettingsScreen
+        {...settingsProps}
+        deps={deps({ approver: async () => ({ available: false, devices: [], recent: [] }) })}
+      />,
+    );
+    await settle();
+    expect(text()).toContain("Needs this machine's own public address");
+    expect(button("Pair a phone")).toBeUndefined();
+  });
+
+  it("marks a lapsed pairing rather than listing it as live", async () => {
+    draw(
+      <SettingsScreen
+        {...settingsProps}
+        deps={deps({
+          approver: async () => ({ available: true, devices: [{ ...phone, expired: true }], recent: [] }),
+        })}
+      />,
+    );
+    await settle();
+    expect(text()).toContain("expired — pair again");
+    expect(text()).not.toContain("days left");
+  });
+});
+
+describe("a prompt answered on a phone", () => {
+  it("is named on the calm scene instead of vanishing", () => {
+    draw(
+      <LaneScreen
+        {...laneProps}
+        snapshot={snap({
+          answers: [
+            {
+              change_set_id: "cs_1",
+              device_id: "apr_1",
+              device_name: "Pixel",
+              approved: true,
+              at: new Date().toISOString(),
+            },
+          ],
+        })}
+        tasks={[]}
+      />,
+    );
+    expect(text()).toContain("Pixel approved the last request.");
+  });
+
+  it("is forgotten once it is old news", () => {
+    draw(
+      <LaneScreen
+        {...laneProps}
+        snapshot={snap({
+          answers: [
+            {
+              change_set_id: "cs_1",
+              device_id: "apr_1",
+              device_name: "Pixel",
+              approved: false,
+              at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            },
+          ],
+        })}
+        tasks={[]}
+      />,
+    );
+    expect(text()).not.toContain("Pixel");
+  });
+});
 
 describe("forwarded MCP providers on the settings page", () => {
   // The gap this closes: a provider marked trust: workspace runs tools

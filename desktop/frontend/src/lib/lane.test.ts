@@ -77,6 +77,7 @@ function snap(over: Partial<LaneSnapshot> = {}): LaneSnapshot {
     approvals: [],
     changeSets: [],
     sources: SOURCES,
+    answers: [],
     ...over,
   };
 }

@@ -1,5 +1,6 @@
 import {
   fetchApprovals,
+  fetchApprover,
   fetchChangeSets,
   fetchCommandSettings,
   fetchMachines,
@@ -10,6 +11,7 @@ import {
   fetchWorkspaces,
   remoteCore,
   type Approval,
+  NO_APPROVER,
   type ChangeSet,
   type CommandSettingsInfo,
   type MachineInfo,
@@ -33,6 +35,8 @@ export interface CorePollers {
   status: typeof fetchStatus;
   workspaces: typeof fetchWorkspaces;
   approvals: typeof fetchApprovals;
+  /** The paired approver devices' recent answers. */
+  approver: typeof fetchApprover;
   tasks: typeof fetchTasks;
   commandSettings: typeof fetchCommandSettings;
   prefs: typeof fetchPrefs;
@@ -47,6 +51,7 @@ const CORE: CorePollers = {
   status: fetchStatus,
   workspaces: fetchWorkspaces,
   approvals: fetchApprovals,
+  approver: fetchApprover,
   tasks: fetchTasks,
   commandSettings: fetchCommandSettings,
   prefs: fetchPrefs,
@@ -101,6 +106,7 @@ export async function pollCore(deps: CorePollers = CORE): Promise<CorePoll> {
     prefs,
     sources,
     machineList,
+    approver,
   ] = await Promise.all([
     deps.workspaces(),
     deps.approvals(),
@@ -109,6 +115,10 @@ export async function pollCore(deps: CorePollers = CORE): Promise<CorePoll> {
     deps.prefs(),
     deps.sources(),
     deps.machines(),
+    // An echo, not a load-bearing read: a Core that cannot answer it (an
+    // older one, or one without the feature) must not take the window
+    // offline with it.
+    deps.approver().catch(() => NO_APPROVER),
   ]);
   const remotes = await Promise.all(
     machineList.machines.map((m) => pollMachine(deps, m)),
@@ -142,6 +152,7 @@ export async function pollCore(deps: CorePollers = CORE): Promise<CorePoll> {
       approvals,
       changeSets,
       sources,
+      answers: approver.recent,
     },
     workspaces: wsList.workspaces,
     currentWorkspaceID: wsList.currentWorkspaceID,

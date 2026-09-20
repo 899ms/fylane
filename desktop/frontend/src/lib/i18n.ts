@@ -173,6 +173,9 @@ export const DICT = {
   "laneV3.mBoundary": { en: "BOUNDARY", zh: "边界" },
   "laneV3.runningHeadline": { en: "Running on this machine", zh: "正在本机执行" },
   "laneV3.calmHeadline": { en: "Nothing is waiting for approval", zh: "没有等待批准的请求" },
+  // A prompt that left the screen because a paired device answered it.
+  "laneV3.answeredYes": { en: "{device} approved the last request.", zh: "上一条请求已由 {device} 批准。" },
+  "laneV3.answeredNo": { en: "{device} rejected the last request.", zh: "上一条请求已由 {device} 拒绝。" },
   "laneV3.offlineTag": { en: "Not running", zh: "未运行" },
   "laneV3.noFolderHeadline": { en: "No folder has been granted", zh: "还没有授权目录" },
   "laneV3.noFolderBody": {
@@ -518,6 +521,31 @@ export const DICT = {
     zh: "浏览器中的 AI 通过哪条链路找到这台设备。",
   },
   "set.hosted": { en: "Fylane hosted · nothing to install", zh: "Fylane 托管 · 无需安装" },
+  // Approver devices (D43): the phones paired from this page.
+  "set.approver": { en: "Approver devices", zh: "审批设备" },
+  "set.approverNote": {
+    en: "A phone you pair here answers prompts where you are. Every prompt reaches it encrypted; every answer is signed by that phone and still passes this machine's checks.",
+    zh: "在这里配对的手机可以替你在别处回答审批。每条提示加密后才发出;每次作答由手机签名,仍经这台电脑的全部检查。",
+  },
+  "set.approverUnavailable": {
+    en: "Needs this machine's own public address. Switch the connection above from the relay to a tunnel to pair a device.",
+    zh: "需要这台设备自己的公网地址。把上面的连接从中继切到隧道后才能配对。",
+  },
+  "set.approverNone": { en: "No device is paired.", zh: "还没有配对的设备。" },
+  "set.approverPair": { en: "Pair a phone", zh: "配对手机" },
+  "set.approverScan": {
+    en: "Scan with the phone. The code works once and expires in minutes; the pairing lasts 30 days.",
+    zh: "用手机扫描。配对码只能用一次、几分钟后过期;配对有效 30 天。",
+  },
+  "set.approverScanAlt": { en: "Pairing QR code", zh: "配对二维码" },
+  "set.approverLine": { en: "paired {ago} · {left}", zh: "{ago}配对 · {left}" },
+  "set.approverExpiredLine": {
+    en: "expired — pair again to keep using it",
+    zh: "已到期 —— 重新配对后才能继续使用",
+  },
+  "set.daysLeft": { en: "{n} days left", zh: "还剩 {n} 天" },
+  "set.approverWithdraw": { en: "Withdraw", zh: "收回" },
+  "set.approverWithdrawAsk": { en: "Withdraw now?", zh: "确定收回?" },
   "set.otherWays": { en: "OTHER WAYS", zh: "其他方式" },
   "set.setup": { en: "Set up →", zh: "设置 →" },
   "set.setupClose": { en: "Close", zh: "收起" },

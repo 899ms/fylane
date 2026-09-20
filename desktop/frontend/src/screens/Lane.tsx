@@ -4,6 +4,7 @@ import type { MachineView } from "../lib/poll";
 import { reasonText } from "../components/AddMachineSheet";
 import {
   asksFor,
+  recentAnswer,
   clock,
   dayTally,
   displayWho,
@@ -619,6 +620,9 @@ function Calm(props: LaneProps & { tr: Translator }) {
             };
 
   const tally = dayTally(tasks, snapshot.changeSets, new Date());
+  // A prompt that left this screen because a paired phone answered it: said
+  // once, briefly, so its disappearance is not a mystery.
+  const echo = snapshot.online ? recentAnswer(snapshot.answers, new Date()) : null;
 
   return (
     <div
@@ -660,6 +664,17 @@ function Calm(props: LaneProps & { tr: Translator }) {
       >
         {scene.body}
       </p>
+      {echo && (
+        <div
+          className="fy-snote"
+          style={{ marginTop: 10, color: "var(--fy-ink2)" }}
+          data-answered-by={echo.device_id}
+        >
+          {t(echo.approved ? "laneV3.answeredYes" : "laneV3.answeredNo", {
+            device: echo.device_name,
+          })}
+        </div>
+      )}
 
       <div
         style={{
