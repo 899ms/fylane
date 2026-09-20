@@ -452,10 +452,16 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  var state = "idle", dev = null, prompts = [], current = null, armed = false, detailsOpen = false, busy = false;
  function show(name) { state = name; SECTIONS.forEach(function (s) { $(s).hidden = s !== name; }); $("foot").hidden = !dev || name === "gone"; }
 
+ // Text the script writes itself is written by dictionary key, so a change
+ // of language rewrites it along with everything marked data-k.
+ var said = {};
+ function say(id, key) { said[id] = key; $(id).textContent = key ? T()[key] : ""; }
  function paint() {
   var d = T(); root.lang = lang;
   var nodes = document.querySelectorAll("[data-k]");
   for (var i = 0; i < nodes.length; i++) { var k = nodes[i].getAttribute("data-k"); if (typeof d[k] === "string") nodes[i].textContent = d[k]; }
+  for (var id in said) $(id).textContent = said[id] ? d[said[id]] : "";
+  if (dev) paintPush();
   $("zh").setAttribute("aria-pressed", lang === "zh" ? "true" : "false");
   $("en").setAttribute("aria-pressed", lang === "en" ? "true" : "false");
   if (dev) { $("iname").textContent = dev.name; $("iuntil").textContent = new Date(dev.expiresAt).toLocaleDateString(lang === "zh" ? "zh-CN" : "en-US"); }
@@ -558,15 +564,15 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   signed(dev, "POST", "/v1/approver/answer", JSON.stringify({handle: handle, approved: approved})).then(function (resp) {
    noteClock(resp); busy = false;
    if (resp.status === 401) return resp.json().then(function (b) { ended(b.error); });
-   if (resp.status === 404) { $("aerr").textContent = T().aGone; $("aerr").hidden = false; }
-   else if (!resp.ok) { $("aerr").textContent = T().aFailed; $("aerr").hidden = false; renderPrompt(); return; }
+   if (resp.status === 404) { say("aerr", "aGone"); $("aerr").hidden = false; }
+   else if (!resp.ok) { say("aerr", "aFailed"); $("aerr").hidden = false; renderPrompt(); return; }
    answered[handle] = true; current = null; setPrompts(prompts);
-  }, function () { busy = false; $("aerr").textContent = T().aFailed; $("aerr").hidden = false; renderPrompt(); });
+  }, function () { busy = false; say("aerr", "aFailed"); $("aerr").hidden = false; renderPrompt(); });
  }
 
  function ended(why) {
-  var d = T(), expired = why === "expired";
-  $("gtag").textContent = expired ? d.gExpired : d.gRevoked; $("gtitle").textContent = expired ? d.gExpiredTitle : d.gRevokedTitle;
+  var expired = why === "expired";
+  say("gtag", expired ? "gExpired" : "gRevoked"); say("gtitle", expired ? "gExpiredTitle" : "gRevokedTitle");
   polling = false; show("gone");
  }
  // Forgetting tells the computer too, so the device leaves its list rather
@@ -593,14 +599,14 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    if (resp.status === 401) return resp.json().then(function (b) { if (b.error === "revoked" || b.error === "expired") ended(b.error); else setTimeout(poll, 1500); });
    if (!resp.ok) throw new Error("inbox " + resp.status);
    return resp.json().then(function (body) {
-    backoff = 0; $("istate").textContent = T().iListening; $("itag").setAttribute("data-tone", "sage");
+    backoff = 0; say("istate", "iListening"); $("itag").setAttribute("data-tone", "sage");
     return Promise.all((body.prompts || []).map(function (e) {
      return open(dev, e).then(function (p) { p.handle = e.handle; return p; }, function () { return null; });
     })).then(function (list) { setPrompts(list.filter(Boolean)); setTimeout(poll, 0); });
    });
   }).catch(function () {
    backoff = Math.min((backoff || 1) * 2, 10);
-   $("istate").textContent = T().iOffline; $("itag").setAttribute("data-tone", "amber");
+   say("istate", "iOffline"); $("itag").setAttribute("data-tone", "amber");
    setTimeout(poll, backoff * 1000);
   });
  }
@@ -611,7 +617,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  // the page fetches the prompt, sealed, when it opens. iOS offers push only
  // to a page installed on the home screen, so in a browser tab the row
  // says so instead of offering a button.
- var pushKey = null, pushEnabled = false;
+ var pushKey = null, pushEnabled = false, pushWhy = "";
  function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
  // The worker this page registered, once active — or a refusal after a
  // while, so the row never stays blank if the worker failed to install.
@@ -619,23 +625,24 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   return Promise.race([navigator.serviceWorker.ready,
    new Promise(function (_, rej) { setTimeout(function () { rej(new Error("worker")); }, 8000); })]);
  }
- function paintPush(label) {
+ // why is "" (usable), "unsupported" or "unavailable"; undefined keeps it.
+ function paintPush(why) {
+  if (why !== undefined) pushWhy = why;
   var d = T();
-  $("ipush").textContent = label || (pushEnabled ? d.pushOn : d.pushOff);
-  $("pushrow").hidden = !!label || pushEnabled || !pushKey;
+  $("ipush").textContent = pushWhy === "unsupported" ? d.pushUnsupported : pushWhy === "unavailable" ? d.pushUnavailable : pushEnabled ? d.pushOn : d.pushOff;
+  $("pushrow").hidden = !!pushWhy || pushEnabled || !pushKey;
  }
  function registerPush(sub) {
   var j = sub.toJSON();
   return signed(dev, "POST", "/v1/approver/push", JSON.stringify({endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth}))
-   .then(function (resp) { if (!resp.ok) throw new Error("push " + resp.status); pushEnabled = true; paintPush(); });
+   .then(function (resp) { if (!resp.ok) throw new Error("push " + resp.status); pushEnabled = true; paintPush(""); });
  }
  function refreshPush() {
   if (!dev) return;
-  var d = T();
   $("pusherr").hidden = true;
-  if (!pushSupported()) { paintPush(d.pushUnsupported); return; }
+  if (!pushSupported()) { paintPush("unsupported"); return; }
   signed(dev, "GET", "/v1/approver/push", null).then(function (resp) { return resp.ok ? resp.json() : null; }).then(function (info) {
-   if (!info || !info.available) { paintPush(d.pushUnavailable); return; }
+   if (!info || !info.available) { paintPush("unavailable"); return; }
    pushKey = info.key; pushEnabled = !!info.enabled;
    return workerReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
     // A subscription the browser still holds but the computer forgot is
@@ -643,12 +650,12 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
     // a subscription any more.
     if (sub && Notification.permission === "granted" && !pushEnabled) return registerPush(sub);
     if (!sub) pushEnabled = false;
-    paintPush();
+    paintPush("");
    });
-  }).catch(function () { paintPush(d.pushUnavailable); });
+  }).catch(function () { paintPush("unavailable"); });
  }
  function enablePush() {
-  var d = T(), btn = $("pushon");
+  var btn = $("pushon");
   btn.disabled = true; $("pusherr").hidden = true;
   Notification.requestPermission().then(function (perm) {
    if (perm !== "granted") throw new Error("denied");
@@ -656,7 +663,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   }).then(function (reg) {
    return reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: unb64u(pushKey)});
   }).then(registerPush).catch(function (e) {
-   $("pusherr").textContent = e && e.message === "denied" ? d.pushDenied : d.pushFailed; $("pusherr").hidden = false;
+   say("pusherr", e && e.message === "denied" ? "pushDenied" : "pushFailed"); $("pusherr").hidden = false;
   }).then(function () { btn.disabled = false; });
  }
  $("pushon").onclick = enablePush;
@@ -668,8 +675,8 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   if (/Mac/.test(ua)) return "Mac"; if (/Windows/.test(ua)) return "Windows PC"; return "Phone";
  }
  function pair(code) {
-  var go = $("pgo"), d = T();
-  go.disabled = true; go.textContent = d.pBusy; $("perr").hidden = true;
+  var go = $("pgo");
+  go.disabled = true; say("pgo", "pBusy"); $("perr").hidden = true;
   makeKeys().then(function (k) {
    return fetch("/v1/approver/claim", {method: "POST", headers: {"Content-Type": "application/json"}, cache: "no-store",
     body: JSON.stringify({code: code, name: $("name").value.trim() || guessName(), sign_pub: b64u(k.signPub), box_pub: b64u(k.boxPub)})
@@ -687,8 +694,8 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
     return saveDevice(dev).then(function () { if (old && old.id !== dev.id) return forgetRemote(old); });
    });
   }).then(function () { history.replaceState(null, "", location.pathname); start(); }, function (err) {
-   go.disabled = false; go.textContent = d.pGo;
-   $("perr").textContent = err.message === "bad_code" ? d.pBadCode : d.pFailed; $("perr").hidden = false;
+   go.disabled = false; say("pgo", "pGo");
+   say("perr", err.message === "bad_code" ? "pBadCode" : "pFailed"); $("perr").hidden = false;
   });
  }
 
@@ -730,10 +737,10 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   $("cam").srcObject = null;
  }
- function scanFailed(msg) { stopScan(); show("nocode"); $("nerr").textContent = msg; $("nerr").hidden = false; }
+ function scanFailed(key) { stopScan(); show("nocode"); say("nerr", key); $("nerr").hidden = false; }
  function startScan() {
-  var d = T(); $("nerr").hidden = true; $("cerr").hidden = true;
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { scanFailed(d.nNoCamera); return; }
+  $("nerr").hidden = true; $("cerr").hidden = true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { scanFailed("nNoCamera"); return; }
   Promise.all([loadDecoder(), navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}, audio: false})]).then(function (r) {
    var decode = r[0], v = $("cam");
    stream = r[1]; v.srcObject = stream; show("camera");
@@ -748,19 +755,19 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
      var hit = decode(img.data, img.width, img.height, {inversionAttempts: "dontInvert"});
      var got = hit && hit.data ? codeFrom(hit.data) : null;
      if (got && got.code) { stopScan(); beginPair(got.code); return; }
-     if (got && got.other) { $("cerr").textContent = d.nOther; $("cerr").hidden = false; }
+     if (got && got.other) { say("cerr", "nOther"); $("cerr").hidden = false; }
     }
     scanTimer = setTimeout(tick, 120);
    }
    return v.play().then(tick);
-  }).catch(function (e) { scanFailed(e && e.name === "NotAllowedError" ? d.nDenied : d.nNoCamera); });
+  }).catch(function (e) { scanFailed(e && e.name === "NotAllowedError" ? "nDenied" : "nNoCamera"); });
  }
  $("scan").onclick = startScan;
  $("cstop").onclick = function () { stopScan(); show("nocode"); };
  $("manual").onclick = function () { $("mrow").hidden = true; $("mfield").hidden = false; $("mcode").focus(); };
  $("mgo").onclick = function () {
   var got = codeFrom($("mcode").value);
-  if (!got || !got.code) { $("nerr").textContent = got && got.other ? T().nOther : T().nBadInput; $("nerr").hidden = false; return; }
+  if (!got || !got.code) { say("nerr", got && got.other ? "nOther" : "nBadInput"); $("nerr").hidden = false; return; }
   $("nerr").hidden = true; beginPair(got.code);
  };
 

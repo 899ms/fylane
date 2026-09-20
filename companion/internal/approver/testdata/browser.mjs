@@ -112,6 +112,12 @@ try {
   // An outline button outside a row collapses to its text height in the
   // column layout; the rendered height says whether it got its padding.
   out.pushButtonHeight = await evaluate(`document.getElementById("pushon").getBoundingClientRect().height`);
+  // Switching language must rewrite what the script wrote, not only what
+  // is marked in the markup: the notifications value and the listening tag.
+  await evaluate(`document.getElementById("zh").click(); true`);
+  out.zh = await evaluate(`document.getElementById("ipush").textContent + "|" + document.getElementById("istate").textContent + "|" + document.getElementById("pushon").textContent`);
+  await evaluate(`document.getElementById("en").click(); true`);
+  out.en = await evaluate(`document.getElementById("ipush").textContent + "|" + document.getElementById("istate").textContent`);
   out.ok = true;
 } catch (e) {
   if (!(e && e.done)) out.error = String(e);

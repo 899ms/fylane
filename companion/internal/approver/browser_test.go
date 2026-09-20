@@ -58,6 +58,8 @@ func TestAPhoneCanPairSeeADiffAndApproveInARealBrowser(t *testing.T) {
 		Push               string  `json:"push"`
 		PushButton         bool    `json:"pushButton"`
 		PushButtonHeight   float64 `json:"pushButtonHeight"`
+		ZH                 string  `json:"zh"`
+		EN                 string  `json:"en"`
 	}
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &out); err != nil {
 		t.Fatalf("browser output: %v\n%s", err, raw)
@@ -79,6 +81,9 @@ func TestAPhoneCanPairSeeADiffAndApproveInARealBrowser(t *testing.T) {
 	}
 	if out.PushButtonHeight < 42 {
 		t.Errorf("the button rendered %.0fpx tall: it lost its padding", out.PushButtonHeight)
+	}
+	if out.ZH != "未开启|监听中|开启通知" || out.EN != "Off|Listening" {
+		t.Errorf("a language switch must rewrite script-written text too: zh %q, en %q", out.ZH, out.EN)
 	}
 	select {
 	case d := <-decided:
