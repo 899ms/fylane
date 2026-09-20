@@ -53,23 +53,15 @@ func (a *App) startup(ctx context.Context) {
 	// First-run: nobody has started the Core yet — the shell brings it up so
 	// the user never faces a "core is not running" wall. The Core's
 	// single-instance lock makes a concurrent start harmless.
-	go a.StartCore()
+	go a.launchCore()
 }
 
 // StartCore launches the Companion core when it is not already reachable.
 // Bound to the frontend so the offline banner can offer a retry. Returns a
 // short status string for display.
 func (a *App) StartCore() (string, error) {
-	if cf, err := a.client(); err == nil {
-		req, err := http.NewRequest(http.MethodGet, "http://"+cf.Addr+"/v1/status", nil)
-		if err == nil {
-			req.Header.Set("Authorization", "Bearer "+cf.Token)
-			c := &http.Client{Timeout: 2 * time.Second}
-			if resp, err := c.Do(req); err == nil {
-				resp.Body.Close()
-				return "already running", nil
-			}
-		}
+	if a.coreReachable() {
+		return "already running", nil
 	}
 	bin, err := companionBinary()
 	if err != nil {
@@ -106,6 +98,44 @@ func (a *App) StartCore() (string, error) {
 		return "", fmt.Errorf("the core stopped right after starting: %s", startFailure(err, tail.String()))
 	case <-time.After(startWatch):
 		return "starting", nil
+	}
+}
+
+// coreReachable reports whether the Core named by the control file answers
+// right now. It says nothing about the next second.
+func (a *App) coreReachable() bool {
+	cf, err := a.client()
+	if err != nil {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://"+cf.Addr+"/v1/status", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+cf.Token)
+	c := &http.Client{Timeout: 2 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
+}
+
+// launchCore is StartCore at the shell's own launch. "Already running" at
+// that moment can come from a Core on its way out: the shell was reopened
+// in the same second the old Core was told to stop, and the control file
+// was still there to answer. So that answer is checked once more after a
+// beat, and a Core that has gone by then is started after all. The retry
+// button does not need this — a person pressing it is looking at a banner
+// that says the Core is gone.
+func (a *App) launchCore() {
+	if status, _ := a.StartCore(); status != "already running" {
+		return
+	}
+	time.Sleep(startWatch)
+	if !a.coreReachable() {
+		_, _ = a.StartCore()
 	}
 }
 

@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -91,6 +93,64 @@ func TestStartFailurePrefersWhatTheCoreSaid(t *testing.T) {
 	}
 	if got := startFailure(nil, ""); got == "" {
 		t.Error("startFailure returned nothing at all")
+	}
+}
+
+// answeringCore stands in for a running Core: it answers /v1/status until
+// closed, and its control file points the shell at it.
+func answeringCore(t *testing.T, dataDir string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/status" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	cf := `{"addr":"` + strings.TrimPrefix(srv.URL, "http://") + `","token":"t"}`
+	if err := os.WriteFile(filepath.Join(dataDir, "control.json"), []byte(cf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return srv
+}
+
+// The launch-time race (seen 2026-09-17 after a kill-then-open): the shell
+// was reopened in the same second the old Core was told to stop. Its control
+// file was still there and it still answered, so the shell took "already
+// running" for an answer — and then there was no Core until the user pressed
+// the button on the banner.
+func TestLaunchStartsACoreThatWasOnItsWayOut(t *testing.T) {
+	mark := filepath.Join(t.TempDir(), "started")
+	t.Setenv("FYLANE_TEST_MARK", mark)
+	fakeCore(t, ": > \"$FYLANE_TEST_MARK\"\nexit 0\n")
+	a := &App{dataDir: t.TempDir()}
+	srv := answeringCore(t, a.dataDir)
+	go func() {
+		time.Sleep(startWatch / 4)
+		srv.Close()
+	}()
+
+	a.launchCore()
+
+	if _, err := os.Stat(mark); err != nil {
+		t.Fatal("the Core answered once and then went away; the shell never started one")
+	}
+}
+
+// The other half: a Core that keeps answering is left alone. A second start
+// would only lose the single-instance race, but it is noise nobody asked for.
+func TestLaunchLeavesARunningCoreAlone(t *testing.T) {
+	mark := filepath.Join(t.TempDir(), "started")
+	t.Setenv("FYLANE_TEST_MARK", mark)
+	fakeCore(t, ": > \"$FYLANE_TEST_MARK\"\nexit 0\n")
+	a := &App{dataDir: t.TempDir()}
+	srv := answeringCore(t, a.dataDir)
+	defer srv.Close()
+
+	a.launchCore()
+
+	if _, err := os.Stat(mark); err == nil {
+		t.Fatal("a Core that kept answering was started again")
 	}
 }
 
