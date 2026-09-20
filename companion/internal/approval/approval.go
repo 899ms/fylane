@@ -74,6 +74,15 @@ type Pending struct {
 // already answered.
 func (p *Pending) Done() <-chan struct{} { return p.done }
 
+// Decision returns what was decided, and false while nothing has been. The
+// reason on it names the surface that answered ("approver:<device>" when a
+// paired device did), which the audit needs and the wait alone cannot say.
+func (p *Pending) Decision() (txn.Decision, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.decision, p.decided
+}
+
 func (p *Pending) resolve(d txn.Decision) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()

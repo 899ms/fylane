@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/leazoot/fylane/companion/internal/approval"
@@ -57,6 +58,11 @@ func decisionRecorder(st *store.Store, log *slog.Logger) func(*approval.Pending,
 		}
 		if approved {
 			e.Result = "approved"
+		}
+		// A decision made on a paired device names the device, so the row
+		// can never read as if the desktop answered when a phone did.
+		if d, ok := p.Decision(); ok && strings.HasPrefix(d.Reason, "approver:") {
+			e.Result += ":" + d.Reason
 		}
 		if kind == txn.KindWrite {
 			e.ChangeSetID = p.Request.ChangeSetID

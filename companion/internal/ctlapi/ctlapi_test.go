@@ -341,7 +341,7 @@ func TestApprovalListCarriesTheBasisForACommandDecision(t *testing.T) {
 		t.Fatalf("approvals = %d %s", resp.StatusCode, body)
 	}
 	var got struct {
-		Approvals []pendingApproval `json:"approvals"`
+		Approvals []PendingApproval `json:"approvals"`
 	}
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatalf("decode: %v (%s)", err, body)
@@ -379,7 +379,7 @@ func TestApprovalKindDefaultsToWriteRatherThanEmpty(t *testing.T) {
 
 	_, body := f.call(t, "GET", "/v1/approvals", f.token, nil)
 	var got struct {
-		Approvals []pendingApproval `json:"approvals"`
+		Approvals []PendingApproval `json:"approvals"`
 	}
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatalf("decode: %v (%s)", err, body)

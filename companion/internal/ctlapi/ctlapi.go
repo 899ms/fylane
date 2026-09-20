@@ -129,6 +129,9 @@ type Server struct {
 	// MCPAddr is the bound loopback MCP listener, recorded in the control
 	// file for a Companion that drives this one over ssh.
 	MCPAddr string
+	// Approver backs the settings page's approver devices; nil means the
+	// section says it is unavailable.
+	Approver ApproverControl
 
 	token string
 }
@@ -465,6 +468,9 @@ func (s *Server) Start(ctx context.Context, dataDir string) (string, error) {
 	mux.HandleFunc("POST /v1/pairclaims/resolve", s.handlePairClaimResolve)
 	mux.HandleFunc("GET /v1/approvals", s.handleApprovals)
 	mux.HandleFunc("POST /v1/approvals/resolve", s.handleResolve)
+	mux.HandleFunc("GET /v1/approver", s.handleApprover)
+	mux.HandleFunc("POST /v1/approver/pair", s.handleApproverPair)
+	mux.HandleFunc("POST /v1/approver/revoke", s.handleApproverRevoke)
 	mux.HandleFunc("GET /v1/workspaces", s.handleWorkspaces)
 	mux.HandleFunc("POST /v1/workspaces/add", s.handleWorkspaceAdd)
 	mux.HandleFunc("POST /v1/workspaces/select", s.workspaceAction(s.Manager.SetCurrent))
@@ -683,13 +689,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, resp)
 }
 
-// pendingApproval is one prompt as the desktop renders it. It carries more
+// PendingApproval is one prompt as the desktop renders it. It carries more
 // than the change set did because a command prompt has no diff to show: the
 // argv, the rule that objected and that rule's reason are the whole basis for
 // the decision, and for a while none of the three reached the screen. Like
 // root_path above, they stay on this loopback, token-authenticated surface —
-// the argv is never echoed back over MCP or Relay.
-type pendingApproval struct {
+// the argv is never echoed back over MCP or Relay. The one other place it
+// goes is inside an approver envelope, sealed to a device the user paired.
+type PendingApproval struct {
 	ChangeSetID   string    `json:"change_set_id"`
 	WorkspaceID   string    `json:"workspace_id"`
 	WorkspaceName string    `json:"workspace_name"`
@@ -715,28 +722,35 @@ type pendingApproval struct {
 	Network string `json:"network,omitempty"`
 }
 
+// ApprovalView renders one prompt for a screen. The desktop window and an
+// approver device get the same view from the same function, so the two
+// never disagree about what is being asked.
+func ApprovalView(p *approval.Pending) PendingApproval {
+	return PendingApproval{
+		ChangeSetID:   p.Request.ChangeSetID,
+		WorkspaceID:   p.Request.WorkspaceID,
+		WorkspaceName: p.Request.WorkspaceName,
+		Provider:      p.Request.Provider,
+		Summary:       p.Request.Summary,
+		CreatedAt:     p.CreatedAt,
+		Operations:    p.Request.Operations,
+		Kind:          approvalKind(p.Request),
+		Command:       p.Request.Command,
+		Dir:           p.Request.Dir,
+		Rule:          p.Request.Rule,
+		Reason:        p.Request.Reason,
+		Grant:         p.Request.Grant,
+		GrantHours:    grantHours(p.Request),
+		MustAsk:       p.Request.MustAsk,
+		Network:       p.Request.Network,
+	}
+}
+
 func (s *Server) handleApprovals(w http.ResponseWriter, _ *http.Request) {
 	pending := s.Approvals.Pending()
-	out := make([]pendingApproval, 0, len(pending))
+	out := make([]PendingApproval, 0, len(pending))
 	for _, p := range pending {
-		out = append(out, pendingApproval{
-			ChangeSetID:   p.Request.ChangeSetID,
-			WorkspaceID:   p.Request.WorkspaceID,
-			WorkspaceName: p.Request.WorkspaceName,
-			Provider:      p.Request.Provider,
-			Summary:       p.Request.Summary,
-			CreatedAt:     p.CreatedAt,
-			Operations:    p.Request.Operations,
-			Kind:          approvalKind(p.Request),
-			Command:       p.Request.Command,
-			Dir:           p.Request.Dir,
-			Rule:          p.Request.Rule,
-			Reason:        p.Request.Reason,
-			Grant:         p.Request.Grant,
-			GrantHours:    grantHours(p.Request),
-			MustAsk:       p.Request.MustAsk,
-			Network:       p.Request.Network,
-		})
+		out = append(out, ApprovalView(p))
 	}
 	writeJSON(w, map[string]any{"approvals": out})
 }

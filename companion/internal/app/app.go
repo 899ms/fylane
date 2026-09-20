@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/leazoot/fylane/companion/internal/approval"
+	"github.com/leazoot/fylane/companion/internal/approver"
 	"io"
 	"log/slog"
 	"net"
@@ -160,9 +161,15 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	notes := newNotifier(a.log, func() string { return Language(a.cfg.DataDir) })
+	// Assigned below, once the public surface it needs exists; every prompt
+	// arrives after the listeners start, so it is set before it is read.
+	var approvers *approver.Service
 	var approvals *approval.Service
 	approvals, err = newApprovals(a.cfg.ApprovalMode, st, a.log, func(p *approval.Pending) {
 		notes.Approval(p.Request.Provider)
+		if approvers != nil {
+			approvers.Wake()
+		}
 		if a.Ask != nil {
 			go a.Ask(p, approvals.Resolve)
 		}
@@ -357,6 +364,19 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		})
 		go direct.PurgeLoop(ctx)
+
+		// Approver devices (D43): a phone the user paired answers prompts
+		// through this same public surface. Without a keychain to keep the
+		// signing key in, the feature is reported absent rather than run
+		// with a key that would change on every start.
+		approvers, err = a.approverDevices(st, approvals, direct)
+		if err != nil {
+			a.log.Warn("approver devices unavailable", "error", err)
+		} else {
+			direct.SetApprover(approvers.Handler())
+			approvals.OnDecision = chainDecisions(approvals.OnDecision,
+				func(*approval.Pending, bool, time.Duration) { approvers.Wake() })
+		}
 	}
 
 	// The tunnel that publishes that listener, when the user picked one for
@@ -387,6 +407,9 @@ func (a *App) Run(ctx context.Context) error {
 	ctl.BackupRoot = filepath.Join(a.cfg.DataDir, "backups")
 	if tun != nil {
 		ctl.Tunnel = tun
+	}
+	if approvers != nil {
+		ctl.Approver = approvers
 	}
 	if direct != nil {
 		ctl.Tunnel = direct

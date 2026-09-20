@@ -38,6 +38,12 @@ type Server struct {
 
 	mu        sync.RWMutex
 	publicURL string
+
+	// approver, when set, serves the approver-device surface: the page a
+	// paired phone runs and the signed endpoints under /v1/approver/. It
+	// authenticates its own callers by device key; here it only gets the
+	// per-IP limiter and the access log the OAuth endpoints get.
+	approver http.Handler
 }
 
 // Open prepares the direct-connect surface: the auth database in dataDir, the
@@ -100,6 +106,9 @@ func (s *Server) SetPublicURL(u string) {
 // serving; the page reads it per request.
 func (s *Server) SetClaimOrigin(origin string) { s.auth.CompanionOrigin = origin }
 
+// SetApprover mounts the approver-device surface. Call before Handler.
+func (s *Server) SetApprover(h http.Handler) { s.approver = h }
+
 // PublicURL returns the current public base URL, empty when no tunnel is up.
 func (s *Server) PublicURL() string {
 	s.mu.RLock()
@@ -146,6 +155,11 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", s.withIPLimit(ratelimit.New(5, 20), s.withAccessLog(authMux)))
 	mux.Handle("/mcp", s.guardedMCP())
+	if s.approver != nil {
+		guarded := s.withIPLimit(ratelimit.New(5, 20), s.withAccessLog(s.approver))
+		mux.Handle("/approver", guarded)
+		mux.Handle("/v1/approver/", guarded)
+	}
 	return mux
 }
 

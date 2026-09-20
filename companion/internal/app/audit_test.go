@@ -214,3 +214,32 @@ func TestTheApprovalServiceIsBornWithARecorder(t *testing.T) {
 		t.Fatalf("audit rows = %d, want the wired recorder to have written one", n)
 	}
 }
+
+func TestADecisionFromAPairedDeviceNamesTheDeviceInTheAudit(t *testing.T) {
+	// The phone answers through the same Resolve the desktop uses; the one
+	// thing the audit must add is that it was the phone. A row that said
+	// "approved" and nothing more would make the two indistinguishable.
+	dir := t.TempDir()
+	st, db := auditStore(t, dir)
+	asked := make(chan *approval.Pending, 1)
+	svc, err := approval.New(approval.ModeSafe, approval.DefaultBudgets(), func(p *approval.Pending) { asked <- p })
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.OnDecision = decisionRecorder(st, testLogger())
+	go svc.Approve(context.Background(), &txn.ApprovalRequest{
+		ChangeSetID: "cmd:claude:ws:npm test", Kind: txn.KindCommand, Dir: "src", Command: []string{"npm", "test"}})
+	<-asked
+	if !svc.Resolve("cmd:claude:ws:npm test", true, "approver:apr_1") {
+		t.Fatal("resolve")
+	}
+
+	var result string
+	if err := db.QueryRow(`SELECT result FROM audit_events WHERE event_type = 'approval_command'
+		ORDER BY id DESC LIMIT 1`).Scan(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result != "approved:approver:apr_1" {
+		t.Errorf("result = %q, want the device named", result)
+	}
+}
