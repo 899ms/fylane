@@ -99,6 +99,14 @@ type Options struct {
 	// PublicURL is where the device reaches this Companion; the pairing
 	// address is built on it. Empty means no tunnel is up yet.
 	PublicURL func() string
+	// RouteKey, when set, prefixes every pairing code and device id this
+	// Companion hands out with "<key>.", so a relay in front of many
+	// Companions can tell from the credential alone which tunnel a request
+	// belongs in (V-T4). It is this machine's relay device id. The relay
+	// keeps no table: the prefix is the whole routing state, and a device
+	// that reaches the wrong Companion is simply not in its store. Empty in
+	// direct mode, where nothing sits in front.
+	RouteKey string
 	// Push, when set, wakes a subscribed phone when a prompt arrives (V-T5).
 	// Nil means the feature is absent: the page still works, it just has
 	// to be open.
@@ -138,6 +146,11 @@ func New(opts Options) (*Service, error) {
 	}
 	if len(opts.Signer) != ed25519.PrivateKeySize {
 		return nil, errors.New("approver: a signing key is required")
+	}
+	// The key is split off at the first dot and travels in a colon-joined
+	// header; either character inside it would route or parse wrong.
+	if strings.ContainsAny(opts.RouteKey, ".:/ \t\r\n") {
+		return nil, fmt.Errorf("approver: route key %q holds a separator", opts.RouteKey)
 	}
 	if opts.PublicURL == nil {
 		opts.PublicURL = func() string { return "" }
@@ -197,7 +210,7 @@ func (s *Service) Pair() (Pairing, error) {
 	if base == "" {
 		return Pairing{}, ErrNoPublicURL
 	}
-	code := randomToken(20)
+	code := s.routed(randomToken(20))
 	s.mu.Lock()
 	now := s.now()
 	for c, exp := range s.codes {
@@ -208,6 +221,14 @@ func (s *Service) Pair() (Pairing, error) {
 	s.codes[code] = now.Add(PairingTTL)
 	s.mu.Unlock()
 	return Pairing{Code: code, URL: base + "/approver#" + code, ExpiresIn: PairingTTL}, nil
+}
+
+// routed prefixes a code or id with the route key, when there is one.
+func (s *Service) routed(id string) string {
+	if s.opts.RouteKey == "" {
+		return id
+	}
+	return s.opts.RouteKey + "." + id
 }
 
 // takeCode consumes a pairing code; false when it is unknown or lapsed.
@@ -274,7 +295,7 @@ func (s *Service) Claim(ctx context.Context, req ClaimRequest) (ClaimResponse, e
 		return ClaimResponse{}, ErrBadCode
 	}
 	now := s.now()
-	d := &store.ApproverDevice{ID: "apr_" + randomToken(12), Name: name, SignPub: signPub, BoxPub: boxPub,
+	d := &store.ApproverDevice{ID: s.routed("apr_" + randomToken(12)), Name: name, SignPub: signPub, BoxPub: boxPub,
 		CreatedAt: now, ExpiresAt: now.Add(DeviceTTL)}
 	if err := s.opts.Store.PutApprover(ctx, d); err != nil {
 		return ClaimResponse{}, err

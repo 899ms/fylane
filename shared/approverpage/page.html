@@ -708,16 +708,17 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  // The home-screen app opens with no address, and Safari's storage is not
  // its storage, so a pairing made in the browser never reaches it. The code
  // is read here instead: from the camera, or typed. A link from another
- // computer names an origin this page cannot claim against.
+ // computer names an origin this page cannot claim against. A code from
+ // a relay carries the computer's routing key before a dot.
  function codeFrom(text) {
   text = (text || "").trim();
-  var m = /#([A-Za-z0-9_-]{8,})$/.exec(text);
+  var m = /#([A-Za-z0-9._-]{8,})$/.exec(text);
   if (m) {
    var u = /^https?:\/\/[^\s#]+/.exec(text);
    if (u) { try { if (new URL(u[0]).origin !== location.origin) return {other: true}; } catch (e) { return null; } }
    return {code: m[1]};
   }
-  if (/^[A-Za-z0-9_-]{8,}$/.test(text)) return {code: text};
+  if (/^[A-Za-z0-9._-]{8,}$/.test(text)) return {code: text};
   return null;
  }
  var stream = null, scanTimer = 0;

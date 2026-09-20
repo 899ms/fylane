@@ -76,6 +76,11 @@ func TestTheIconIsInstalledFromAnAddressThatChangesWithIt(t *testing.T) {
 	if !strings.Contains(csp, "script-src 'self' 'nonce-") || strings.Contains(csp, "http") {
 		t.Errorf("policy must allow scripts from this origin and its nonce only: %s", csp)
 	}
+	// A code minted behind a relay carries the computer's routing key and
+	// a dot; the page must read it, from the camera and typed alike.
+	if !strings.Contains(page, `/#([A-Za-z0-9._-]{8,})$/`) || !strings.Contains(page, `/^[A-Za-z0-9._-]{8,}$/`) {
+		t.Error("the page must accept a dotted pairing code")
+	}
 	// Under a different path the page is not there: the handler is
 	// registered for /approver/ as a prefix and must not answer /approver/x.
 	rec := httptest.NewRecorder()
