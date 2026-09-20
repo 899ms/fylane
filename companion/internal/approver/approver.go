@@ -11,6 +11,10 @@
 // Prompts leave this process only encrypted to the device's own key: a diff
 // crosses a tunnel, and in relay mode a relay, as ciphertext that neither can
 // read. Each answer is a signed request that is good once and for a minute.
+//
+// The key agreement is ECDH over P-256 rather than X25519: a phone's Web
+// Crypto has had P-256 for a decade, while X25519 reached Safari only in
+// 18.4 — an iOS 17 phone could not pair at all (found 2026-09-19).
 package approver
 
 import (
@@ -214,7 +218,8 @@ func (s *Service) takeCode(code string) bool {
 }
 
 // ClaimRequest is what a device sends with a pairing code: its name and the
-// public halves of the two keys it just generated.
+// public halves of the two keys it just generated — Ed25519 for signing,
+// P-256 (uncompressed point) for receiving.
 type ClaimRequest struct {
 	Code    string `json:"code"`
 	Name    string `json:"name"`
@@ -248,7 +253,7 @@ func (s *Service) Claim(ctx context.Context, req ClaimRequest) (ClaimResponse, e
 	if err != nil {
 		return ClaimResponse{}, ErrBadKey
 	}
-	if _, err := ecdh.X25519().NewPublicKey(boxPub); err != nil {
+	if _, err := ecdh.P256().NewPublicKey(boxPub); err != nil {
 		return ClaimResponse{}, ErrBadKey
 	}
 	name := strings.TrimSpace(req.Name)
@@ -505,11 +510,11 @@ func envelopeMessage(deviceID string, e Envelope) []byte {
 	return []byte(strings.Join([]string{envelopeTag, deviceID, e.Handle, e.EphemeralPub, e.Nonce, e.Ciphertext}, "\n"))
 }
 
-// seal encrypts plaintext to an X25519 public key: an ephemeral key per
+// seal encrypts plaintext to a P-256 public key: an ephemeral key per
 // message, HKDF-SHA256 over the shared secret with both public keys as salt,
 // AES-256-GCM with aad bound in. Standard library throughout.
 func seal(boxPub, aad, plaintext []byte) (epk, nonce, ct []byte, err error) {
-	curve := ecdh.X25519()
+	curve := ecdh.P256()
 	pub, err := curve.NewPublicKey(boxPub)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("device key: %w", err)

@@ -135,7 +135,8 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   <section id="unsupported" hidden>
    <div class="tag" data-tone="brick"><i></i><span data-k="uTag">This browser cannot pair</span></div>
    <h1 data-k="uTitle">A newer browser is needed</h1>
-   <p class="lede" data-k="uLede">This page keeps its keys in the browser and needs Web Crypto with X25519 and Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.</p>
+   <p class="lede" data-k="uLede">This page keeps its keys in the browser and needs Web Crypto with Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.</p>
+   <p class="err" id="uwhy" hidden></p>
   </section>
 
   <!-- Opened with no code and no pairing: nothing to do here yet. -->
@@ -219,7 +220,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  var D = {
   en: {
    eyebrow:"Approver", uTag:"This browser cannot pair", uTitle:"A newer browser is needed",
-   uLede:"This page keeps its keys in the browser and needs Web Crypto with X25519 and Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.",
+   uLede:"This page keeps its keys in the browser and needs Web Crypto with Ed25519: Safari 17, Chrome 137 or Firefox 130 and later. Open it in one of those.",
    nTag:"Not paired", nTitle:"Pair from the computer",
    nLede:"Open Fylane on the computer that runs it, go to Settings → Approver devices, and scan the code it shows with this phone.",
    pTag:"Pairing", pTitle:"Answer approvals from this phone",
@@ -256,7 +257,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   },
   zh: {
    eyebrow:"审批设备", uTag:"这个浏览器无法配对", uTitle:"需要更新的浏览器",
-   uLede:"这一页把密钥留在浏览器里，需要支持 X25519 与 Ed25519 的 Web Crypto：Safari 17、Chrome 137 或 Firefox 130 及以上。请换一个浏览器打开。",
+   uLede:"这一页把密钥留在浏览器里，需要支持 Ed25519 的 Web Crypto：Safari 17、Chrome 137 或 Firefox 130 及以上。请换一个浏览器打开。",
    nTag:"尚未配对", nTitle:"在电脑上发起配对",
    nLede:"打开运行 Fylane 的那台电脑，进入 设置 → 审批设备，用这部手机扫描它显示的二维码。",
    pTag:"配对中", pTitle:"用这部手机回答审批",
@@ -380,9 +381,9 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    return crypto.subtle.verify("Ed25519", pub, sig, msg);
   }).then(function (ok) {
    if (!ok) throw new Error("envelope not from the paired computer");
-   return crypto.subtle.importKey("raw", epk, {name: "X25519"}, false, []);
+   return crypto.subtle.importKey("raw", epk, {name: "ECDH", namedCurve: "P-256"}, false, []);
   }).then(function (epub) {
-   return crypto.subtle.deriveBits({name: "X25519", public: epub}, dev.boxKey, 256);
+   return crypto.subtle.deriveBits({name: "ECDH", public: epub}, dev.boxKey, 256);
   }).then(function (shared) {
    return crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
   }).then(function (hk) {
@@ -392,18 +393,28 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    return crypto.subtle.decrypt({name: "AES-GCM", iv: nonce, additionalData: enc.encode(dev.id + "\n" + e.handle)}, key, ct);
   }).then(function (plain) { return JSON.parse(new TextDecoder().decode(plain)); });
  }
+ // Ed25519 for signing, ECDH P-256 for receiving: P-256 because every
+ // phone's Web Crypto has had it for years, where X25519 reached Safari
+ // only in 18.4 and an iOS 17 phone could not pair.
  function makeKeys() {
   return Promise.all([
    crypto.subtle.generateKey({name: "Ed25519"}, false, ["sign"]),
-   crypto.subtle.generateKey({name: "X25519"}, false, ["deriveBits"])
+   crypto.subtle.generateKey({name: "ECDH", namedCurve: "P-256"}, false, ["deriveBits"])
   ]).then(function (pairs) {
    return Promise.all([crypto.subtle.exportKey("raw", pairs[0].publicKey), crypto.subtle.exportKey("raw", pairs[1].publicKey)])
     .then(function (pubs) { return {signKey: pairs[0].privateKey, boxKey: pairs[1].privateKey, signPub: new Uint8Array(pubs[0]), boxPub: new Uint8Array(pubs[1])}; });
   });
  }
+ // Which piece is missing is said on the page: a person on an old phone can
+ // then report what it lacks rather than "it does not work".
+ var unsupportedWhy = "";
  function supported() {
-  if (!window.crypto || !crypto.subtle || !window.indexedDB) return Promise.resolve(false);
-  return makeKeys().then(function () { return true; }, function () { return false; });
+  if (!window.crypto || !crypto.subtle) { unsupportedWhy = "crypto.subtle"; return Promise.resolve(false); }
+  if (!window.indexedDB) { unsupportedWhy = "indexedDB"; return Promise.resolve(false); }
+  return makeKeys().then(function () { return true; }, function (e) {
+   unsupportedWhy = (e && e.name ? e.name + ": " : "") + (e && e.message ? e.message : String(e));
+   return false;
+  });
  }
 
  // ── states ───────────────────────────────────────────────────────────
@@ -586,7 +597,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  var code = (location.hash || "").replace(/^#/, "");
  supported().then(function (ok) {
   paint();
-  if (!ok) { show("unsupported"); return; }
+  if (!ok) { $("uwhy").textContent = unsupportedWhy; $("uwhy").hidden = !unsupportedWhy; show("unsupported"); return; }
   return loadDevice().then(function (stored) {
    if (code) {
     $("name").value = guessName(); show("pair");

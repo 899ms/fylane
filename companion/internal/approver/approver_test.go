@@ -138,7 +138,7 @@ func newPhone(t *testing.T) *phone {
 	if err != nil {
 		t.Fatal(err)
 	}
-	box, err := ecdh.X25519().GenerateKey(rand.Reader)
+	box, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func (p *phone) open(t *testing.T, e Envelope) []byte {
 	epk, _ := base64.RawURLEncoding.DecodeString(e.EphemeralPub)
 	nonce, _ := base64.RawURLEncoding.DecodeString(e.Nonce)
 	ct, _ := base64.RawURLEncoding.DecodeString(e.Ciphertext)
-	pub, err := ecdh.X25519().NewPublicKey(epk)
+	pub, err := ecdh.P256().NewPublicKey(epk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func ecdhOpen(p *phone, e Envelope) ([]byte, error) {
 	epk, _ := base64.RawURLEncoding.DecodeString(e.EphemeralPub)
 	nonce, _ := base64.RawURLEncoding.DecodeString(e.Nonce)
 	ct, _ := base64.RawURLEncoding.DecodeString(e.Ciphertext)
-	pub, err := ecdh.X25519().NewPublicKey(epk)
+	pub, err := ecdh.P256().NewPublicKey(epk)
 	if err != nil {
 		return nil, err
 	}
