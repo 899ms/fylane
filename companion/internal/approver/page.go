@@ -33,7 +33,9 @@ var qrDecoder []byte
 
 // tagOf versions a file's address by its bytes. These files are cacheable
 // for a day and the tunnel's edge honours that, so a replaced file must
-// arrive under a new address or a phone keeps the old one.
+// arrive under a new address or a phone keeps the old one. The tag sits in
+// the path, not a query string: a home-screen icon cache may ignore the
+// query and keep serving the picture it fetched the first time.
 func tagOf(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:4])
@@ -58,12 +60,12 @@ func (s *Service) PageRoutes(mux *http.ServeMux) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Write([]byte(strings.ReplaceAll(manifest, "{{icon}}", iconTag)))
 	})
-	mux.HandleFunc("GET /approver/icon.png", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /approver/icon-"+iconTag+".png", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Write(icon)
 	})
-	mux.HandleFunc("GET /approver/jsqr.js", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /approver/jsqr-"+decoderTag+".js", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Write(qrDecoder)

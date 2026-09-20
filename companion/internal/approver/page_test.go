@@ -29,7 +29,7 @@ func TestTheIconIsInstalledFromAnAddressThatChangesWithIt(t *testing.T) {
 			t.Errorf("%s still holds a template marker", name)
 		}
 	}
-	ref := regexp.MustCompile(`/approver/icon\.png\?v=([0-9a-f]{8})`)
+	ref := regexp.MustCompile(`/approver/icon-([0-9a-f]{8})\.png`)
 	inPage, inManifest := ref.FindStringSubmatch(page), ref.FindStringSubmatch(manifest)
 	if inPage == nil || inManifest == nil || inPage[1] != inManifest[1] {
 		t.Fatalf("page %v and manifest %v must name the same tagged icon", inPage, inManifest)
@@ -37,16 +37,26 @@ func TestTheIconIsInstalledFromAnAddressThatChangesWithIt(t *testing.T) {
 	if inPage[1] != iconTag {
 		t.Errorf("tag %s is not the icon's own %s", inPage[1], iconTag)
 	}
-	if body := get("/approver/icon.png?v=" + iconTag).Body.Bytes(); len(body) != len(icon) {
+	if body := get("/approver/icon-" + iconTag + ".png").Body.Bytes(); len(body) != len(icon) {
 		t.Errorf("icon served %d bytes of %d", len(body), len(icon))
 	}
 	// The decoder is fetched the same way, and only from here: the policy
 	// names this origin and nowhere else.
-	if !strings.Contains(page, "/approver/jsqr.js?v="+decoderTag) {
+	if !strings.Contains(page, "/approver/jsqr-"+decoderTag+".js") {
 		t.Errorf("page does not load the decoder under its tag %s", decoderTag)
 	}
-	if body := get("/approver/jsqr.js?v=" + decoderTag).Body.Bytes(); len(body) != len(qrDecoder) {
+	if body := get("/approver/jsqr-" + decoderTag + ".js").Body.Bytes(); len(body) != len(qrDecoder) {
 		t.Errorf("decoder served %d bytes of %d", len(body), len(qrDecoder))
+	}
+	// Every id on the page is one element: a second holder of a section's
+	// id is hidden with it, which is how the scan button once vanished.
+	ids := regexp.MustCompile(` id="([^"]+)"`).FindAllStringSubmatch(page, -1)
+	seen := map[string]bool{}
+	for _, m := range ids {
+		if seen[m[1]] {
+			t.Errorf("id %q is used twice", m[1])
+		}
+		seen[m[1]] = true
 	}
 	csp := get("/approver").Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "script-src 'self' 'nonce-") || strings.Contains(csp, "http") {

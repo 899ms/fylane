@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-title" content="Fylane">
 <meta name="theme-color" id="tc" content="#EFEBE1">
 <link rel="manifest" href="/approver/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/approver/icon.png?v={{icon}}">
+<link rel="apple-touch-icon" href="/approver/icon-{{icon}}.png">
 <title>Fylane Approver</title>
 <style nonce="{{nonce}}">
 :root{
@@ -158,7 +158,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   </section>
 
   <!-- The camera, looking for the code the computer shows. -->
-  <section id="scan" hidden>
+  <section id="camera" hidden>
    <div class="tag" data-pulse="1"><i></i><span data-k="cTag">Scanning</span></div>
    <h1 data-k="cTitle">Point at the code on the screen</h1>
    <div class="cam"><video id="cam" playsinline muted autoplay></video><div class="aim"></div></div>
@@ -441,7 +441,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  }
 
  // ── states ───────────────────────────────────────────────────────────
- var SECTIONS = ["unsupported", "nocode", "scan", "pair", "idle", "prompt", "gone"];
+ var SECTIONS = ["unsupported", "nocode", "camera", "pair", "idle", "prompt", "gone"];
  var state = "idle", dev = null, prompts = [], current = null, armed = false, detailsOpen = false, busy = false;
  function show(name) { state = name; SECTIONS.forEach(function (s) { $(s).hidden = s !== name; }); $("foot").hidden = !dev || name === "gone"; }
 
@@ -642,7 +642,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  function loadDecoder() {
   if (window.jsQR) return Promise.resolve(window.jsQR);
   return new Promise(function (res, rej) {
-   var s = document.createElement("script"); s.src = "/approver/jsqr.js?v={{jsqr}}";
+   var s = document.createElement("script"); s.src = "/approver/jsqr-{{jsqr}}.js";
    s.onload = function () { window.jsQR ? res(window.jsQR) : rej(new Error("decoder")); };
    s.onerror = function () { rej(new Error("decoder")); };
    document.head.appendChild(s);
@@ -659,10 +659,10 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { scanFailed(d.nNoCamera); return; }
   Promise.all([loadDecoder(), navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}, audio: false})]).then(function (r) {
    var decode = r[0], v = $("cam");
-   stream = r[1]; v.srcObject = stream; show("scan");
+   stream = r[1]; v.srcObject = stream; show("camera");
    var canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", {willReadFrequently: true});
    function tick() {
-    if (state !== "scan") return;
+    if (state !== "camera") return;
     if (v.readyState >= 2 && v.videoWidth) {
      var scale = Math.min(1, 640 / v.videoWidth);
      canvas.width = Math.round(v.videoWidth * scale); canvas.height = Math.round(v.videoHeight * scale);

@@ -72,10 +72,13 @@ const out = {};
 try {
   if (scanFile) {
     await until(`document.getElementById("nocode") && !document.getElementById("nocode").hidden`);
+    // The button has to be there to press: a hidden one still takes a
+    // click() from here, which is not what a thumb can do.
+    if (await evaluate(`document.getElementById("scan").hidden || document.getElementById("scan").offsetParent === null`)) throw new Error("the scan button is not shown");
     await evaluate(`document.getElementById("scan").click(); true`);
     // The first frame can decode before this poll sees the camera view:
     // either the camera view or the pairing form that follows it counts.
-    await until(`!document.getElementById("scan").hidden || !document.getElementById("pair").hidden`, 15000);
+    await until(`!document.getElementById("camera").hidden || !document.getElementById("pair").hidden`, 15000);
     out.scanned = true;
   }
   await until(`document.getElementById("pair") && !document.getElementById("pair").hidden`, scanFile ? 20000 : 8000);
@@ -104,7 +107,7 @@ try {
 } catch (e) {
   if (!(e && e.done)) out.error = String(e);
   try { out.log = await evaluate(`JSON.stringify(window.__log || null) + " aerr=" + document.getElementById("aerr").textContent + " btn=" + document.getElementById("approve").textContent`); } catch {}
-  try { out.state = await evaluate(`["unsupported","nocode","scan","pair","idle","prompt","gone"].filter(id => !document.getElementById(id).hidden).join(",") + " " + (document.getElementById("perr").textContent || "") + (document.getElementById("nerr").textContent || "") + (document.getElementById("cerr").textContent || "")`); } catch {}
+  try { out.state = await evaluate(`["unsupported","nocode","camera","pair","idle","prompt","gone"].filter(id => !document.getElementById(id).hidden).join(",") + " " + (document.getElementById("perr").textContent || "") + (document.getElementById("nerr").textContent || "") + (document.getElementById("cerr").textContent || "")`); } catch {}
 }
 console.log(JSON.stringify(out));
 ws.close();
