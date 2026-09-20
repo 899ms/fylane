@@ -210,7 +210,7 @@ func (s *Service) Pair() (Pairing, error) {
 	if base == "" {
 		return Pairing{}, ErrNoPublicURL
 	}
-	code := s.routed(randomToken(20))
+	code := s.routed(humanCode())
 	s.mu.Lock()
 	now := s.now()
 	for c, exp := range s.codes {
@@ -218,9 +218,48 @@ func (s *Service) Pair() (Pairing, error) {
 			delete(s.codes, c)
 		}
 	}
-	s.codes[code] = now.Add(PairingTTL)
+	s.codes[normalizeCode(code)] = now.Add(PairingTTL)
 	s.mu.Unlock()
 	return Pairing{Code: code, URL: base + "/approver#" + code, ExpiresIn: PairingTTL}, nil
+}
+
+// codeAlphabet is the platform pairing code's: no 0/O or 1/I, one case.
+// A code is read off a screen and typed on a phone when the camera cannot
+// be used, so it must survive being read aloud and typed in lowercase.
+const codeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+// humanCode is twelve letters in three groups, 60 bits. The code lives ten
+// minutes behind a per-address limit of a few calls a second, so a guess
+// has no chance at that strength, and no strength above it helps.
+func humanCode() string {
+	buf := make([]byte, 12)
+	if _, err := rand.Read(buf); err != nil {
+		panic(fmt.Sprintf("approver: reading random bytes: %v", err))
+	}
+	out := make([]byte, 0, 14)
+	for i, b := range buf {
+		if i > 0 && i%4 == 0 {
+			out = append(out, '-')
+		}
+		out = append(out, codeAlphabet[int(b)%len(codeAlphabet)])
+	}
+	return string(out)
+}
+
+// normalizeCode is how a code is keyed: the route key, if any, exactly as
+// minted, and the code itself without its grouping dashes and in upper
+// case, so that what a person typed matches what the desktop showed.
+func normalizeCode(code string) string {
+	code = strings.TrimSpace(code)
+	key, rest, ok := strings.Cut(code, ".")
+	if !ok {
+		key, rest = "", code
+	}
+	rest = strings.ToUpper(strings.ReplaceAll(rest, "-", ""))
+	if !ok {
+		return rest
+	}
+	return key + "." + rest
 }
 
 // routed prefixes a code or id with the route key, when there is one.
@@ -235,6 +274,7 @@ func (s *Service) routed(id string) string {
 func (s *Service) takeCode(code string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	code = normalizeCode(code)
 	exp, ok := s.codes[code]
 	if !ok {
 		return false

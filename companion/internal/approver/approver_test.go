@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -162,6 +163,11 @@ func (r *rig) pair(p *phone) {
 	}
 	if !strings.HasPrefix(pairing.URL, "https://core.example/approver#") {
 		r.t.Fatalf("pairing address %q does not carry the code as a fragment", pairing.URL)
+	}
+	// The code is one a person can read off the screen and type: three
+	// groups of four from an alphabet without look-alikes.
+	if !regexp.MustCompile(`^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$`).MatchString(pairing.Code) {
+		r.t.Fatalf("pairing code %q is not a typed code", pairing.Code)
 	}
 	req := p.claim()
 	req.Code = pairing.Code

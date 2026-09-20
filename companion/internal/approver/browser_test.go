@@ -120,7 +120,7 @@ func TestAPhoneCanPairByPointingItsCameraAtTheCode(t *testing.T) {
 	srv := httptest.NewServer(r.svc.Handler())
 	defer srv.Close()
 	r.svc.mu.Lock()
-	r.svc.codes["browser-test-code-0123456789"] = r.now().Add(PairingTTL)
+	r.svc.codes[normalizeCode("browser-test-code-0123456789")] = r.now().Add(PairingTTL)
 	r.svc.mu.Unlock()
 	decided := r.ask("cs_camera")
 

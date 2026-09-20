@@ -70,3 +70,40 @@ func TestBehindARelayEveryCredentialCarriesTheRouteKey(t *testing.T) {
 		}
 	}
 }
+
+// TestATypedCodeIsForgivenItsCaseAndDashes: the code is typed when the
+// camera cannot be used, and what a thumb produces is lower case with the
+// groups run together or the dashes kept. The route key before the dot is
+// a machine id and stays exact.
+func TestATypedCodeIsForgivenItsCaseAndDashes(t *testing.T) {
+	r := newRig(t)
+	opts := r.svc.opts
+	opts.RouteKey = "dev_Abc"
+	svc, err := New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	do := func(req *http.Request) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		svc.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	pairing, err := svc.Pair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := strings.TrimPrefix(pairing.Code, "dev_Abc.")
+	typed := "dev_Abc." + strings.ToLower(strings.ReplaceAll(shown, "-", ""))
+	req := newPhone(t).claim()
+	req.Code = typed
+	if rec := do(httptest.NewRequest("POST", "/v1/approver/claim", jsonBody(req))); rec.Code != http.StatusCreated {
+		t.Fatalf("typed %q for shown %q: %d %s", typed, pairing.Code, rec.Code, rec.Body)
+	}
+	// The key is not forgiven: a different case is a different machine.
+	again, _ := svc.Pair()
+	req = newPhone(t).claim()
+	req.Code = strings.ToLower(again.Code)
+	if rec := do(httptest.NewRequest("POST", "/v1/approver/claim", jsonBody(req))); rec.Code != http.StatusNotFound {
+		t.Fatalf("a lower-cased route key claimed: %d", rec.Code)
+	}
+}
