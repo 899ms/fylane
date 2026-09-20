@@ -364,7 +364,9 @@ function Row({
             {entryStatusWord(entry, tr)}
           </span>
           <span className="fy-trow-sep"> · </span>
-          {who}
+          <span className="fy-trow-who" title={who}>
+            {who}
+          </span>
           <span className="fy-trow-sep"> · </span>
           <span style={{ fontVariantNumeric: "tabular-nums" }}>{took}</span>
         </span>

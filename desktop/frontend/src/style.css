@@ -1546,18 +1546,37 @@ a {
   transform: none;
   pointer-events: auto;
 }
+/* Three columns, not one right-aligned string: the status word ends at the
+   first dot on every row, the platform starts at the same edge, the time
+   ends at the right edge. The board drew one string (v3, 172px, right); on a
+   real feed the status words sat wherever the platform name left them, and a
+   column that does not line up reads as noise. Widths are in em so the
+   compact density scales them with the type. */
 .fy-trow-meta {
   flex: none;
-  width: 186px;
-  text-align: right;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 4.5em auto 3.8em;
+  align-items: baseline;
+  width: 196px;
   font: 400 12px/1.4 var(--fy-sans);
   color: var(--fy-faint);
   white-space: nowrap;
+}
+.fy-trow-meta > * {
+  min-width: 0;
+}
+.fy-trow-meta > :first-child,
+.fy-trow-meta > :last-child {
+  justify-self: end;
+}
+.fy-trow-who {
+  justify-self: start;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .fy-trow-sep {
   color: var(--fy-rule);
+  white-space: pre;
 }
 .fy-trow-chev {
   flex: none;
