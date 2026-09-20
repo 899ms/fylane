@@ -22,9 +22,9 @@ import (
 // process a command in this workspace started, opened in a browser whose
 // every request is checked, with nothing of the user's own browser in it.
 
-// snapshotRule is the rule id the desktop prompt keys off. It is not a
+// SnapshotRule is the rule id the desktop prompt keys off. It is not a
 // cmdrule entry: nothing here is a command the caller chose to run.
-const snapshotRule = "page-snapshot-here"
+const SnapshotRule = "page-snapshot-here"
 
 // SnapshotWarning is shown with the prompt: the picture is not the only thing
 // that leaves, and what the page shows is not always what the user expects.
@@ -191,8 +191,12 @@ func (t *toolset) confirmSnapshot(ctx context.Context, ws *workspace.Workspace, 
 		Summary:       "take a picture of " + pageURL + " and send it to the AI",
 		Kind:          txn.KindCommand,
 		Command:       []string{"page_snapshot", pageURL},
-		Rule:          snapshotRule,
+		Rule:          SnapshotRule,
 		Reason:        SnapshotWarning,
+		// The one-time question is a grant like the command gate's: the
+		// yes is recorded when the user gives it, not only when this call
+		// is still around to hear it.
+		Grant: !every,
 	})
 	if err != nil {
 		return pageSnapshotOutput{}, false, err
@@ -223,7 +227,7 @@ func (t *toolset) confirmSnapshot(ctx context.Context, ws *workspace.Workspace, 
 			Provider:    t.provider,
 			Outcome:     cmdexec.OutcomeRefused,
 			Reason:      verdict.Reason,
-			Rule:        snapshotRule,
+			Rule:        SnapshotRule,
 		})
 		return pageSnapshotOutput{
 			Status: "refused",

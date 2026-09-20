@@ -283,6 +283,9 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	delegations := cmdgate.NewDelegations()
+	// Grants are recorded on the answer, not only by the call that asked:
+	// the call may be gone by the time the user gets to the window.
+	approvals.OnDecision = chainDecisions(approvals.OnDecision, grantRecorder(gate, snapshots, delegations, a.log))
 	var handler http.Handler = mcpserver.Handler(mcpserver.Deps{
 		Source:      manager,
 		Engine:      engine,

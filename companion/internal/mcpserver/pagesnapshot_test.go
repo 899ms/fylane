@@ -83,7 +83,7 @@ func TestPageSnapshotAsksOnceAWorkspaceAndSendsThePictureWithItsReading(t *testi
 		t.Fatalf("out %+v", out)
 	}
 	reqs := f.approver.requests()
-	if len(reqs) != 1 || reqs[0].ChangeSetID != "snap-grant:"+reqs[0].WorkspaceID || reqs[0].Rule != snapshotRule || reqs[0].Reason != SnapshotWarning {
+	if len(reqs) != 1 || reqs[0].ChangeSetID != "snap-grant:"+reqs[0].WorkspaceID || reqs[0].Rule != SnapshotRule || reqs[0].Reason != SnapshotWarning {
 		t.Fatalf("approval requests %+v", reqs)
 	}
 	if len(res.Content) != 2 {
@@ -166,7 +166,7 @@ func TestADeclinedSnapshotTakesNothingGrantsNothingAndIsAudited(t *testing.T) {
 		t.Fatal("a declined snapshot took a picture or granted the workspace")
 	}
 	audit := f.audit.all()
-	if len(audit) != 1 || audit[0].Outcome != cmdexec.OutcomeRefused || audit[0].Rule != snapshotRule {
+	if len(audit) != 1 || audit[0].Outcome != cmdexec.OutcomeRefused || audit[0].Rule != SnapshotRule {
 		t.Fatalf("audit %+v", audit)
 	}
 
