@@ -365,18 +365,50 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		})
 		go direct.PurgeLoop(ctx)
+	}
 
-		// Approver devices (D43): a phone the user paired answers prompts
-		// through this same public surface. Without a keychain to keep the
-		// signing key in, the feature is reported absent rather than run
-		// with a key that would change on every start.
-		approvers, err = a.approverDevices(st, approvals, direct)
+	// Approver devices (D43): a phone the user paired answers prompts
+	// through whichever public surface this machine has — its own in
+	// direct mode, the relay's in relay mode, where the relay serves the
+	// page and forwards the API into this tunnel by the route key on every
+	// credential (V-T4). Without a keychain to keep the signing key in, the
+	// feature is reported absent rather than run with a key that would
+	// change on every start.
+	var approverURL func() string
+	routeKey := ""
+	switch {
+	case direct != nil:
+		approverURL = direct.PublicURL
+	case tun != nil:
+		if base, err := BaseURLFromTunnel(a.cfg.RelayURL); err == nil {
+			// A pairing address only makes sense while the relay can reach
+			// this machine; before that the desktop says to start the tunnel.
+			approverURL = func() string {
+				if tun.Connected() {
+					return base
+				}
+				return ""
+			}
+			routeKey = a.cfg.RouteKey()
+		}
+	}
+	if approverURL != nil {
+		approvers, err = a.approverDevices(st, approvals, approverURL, routeKey)
 		if err != nil {
 			a.log.Warn("approver devices unavailable", "error", err)
 		} else {
-			direct.SetApprover(approvers.Handler())
 			approvals.OnDecision = chainDecisions(approvals.OnDecision,
 				func(*approval.Pending, bool, time.Duration) { approvers.Wake() })
+			if direct != nil {
+				direct.SetApprover(approvers.Handler())
+			} else {
+				tunneled := http.NewServeMux()
+				tunneled.Handle("/", tun.Handler)
+				tunneled.Handle("/approver", approvers.Handler())
+				tunneled.Handle("/approver/", approvers.Handler())
+				tunneled.Handle("/v1/approver/", approvers.Handler())
+				tun.Handler = tunneled
+			}
 		}
 	}
 

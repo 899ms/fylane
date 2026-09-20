@@ -261,3 +261,18 @@ func (c *Config) TunnelToken() (string, error) {
 	}
 	return creds.TunnelToken(), nil
 }
+
+// RouteKey is this machine's identity in front of a relay: its relay device
+// id, which the approver surface prefixes to every credential it hands out
+// so the relay can route them without a table (V-T4). Empty with a shared
+// token, where the relay has one Companion and needs no key.
+func (c *Config) RouteKey() string {
+	if os.Getenv("FYLANE_TUNNEL_TOKEN") != "" {
+		return ""
+	}
+	creds, err := devicecred.Load(c.RelayURL)
+	if err != nil {
+		return ""
+	}
+	return creds.DeviceID
+}

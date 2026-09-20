@@ -5,16 +5,18 @@ import (
 	"github.com/leazoot/fylane/companion/internal/approver"
 	"github.com/leazoot/fylane/companion/internal/ctlapi"
 	"github.com/leazoot/fylane/companion/internal/devicecred"
-	"github.com/leazoot/fylane/companion/internal/directsrv"
 	"github.com/leazoot/fylane/companion/internal/store"
 	"github.com/leazoot/fylane/companion/internal/webpush"
 )
 
-// approverDevices builds the approver surface for direct mode: prompts and
-// decisions come from the same approval service the desktop uses, the view
-// is the desktop's own, and both keys live in the OS keychain. Without a
-// push key the surface still works; the phone just has to be open.
-func (a *App) approverDevices(st *store.Store, approvals *approval.Service, direct *directsrv.Server) (*approver.Service, error) {
+// approverDevices builds the approver surface: prompts and decisions come
+// from the same approval service the desktop uses, the view is the
+// desktop's own, and both keys live in the OS keychain. publicURL is where
+// a phone reaches this machine — its own address in direct mode, the
+// relay's in relay mode, where routeKey is this machine's relay device id.
+// Without a push key the surface still works; the phone just has to be
+// open.
+func (a *App) approverDevices(st *store.Store, approvals *approval.Service, publicURL func() string, routeKey string) (*approver.Service, error) {
 	signer, err := devicecred.ApproverSigningKey()
 	if err != nil {
 		return nil, err
@@ -25,7 +27,8 @@ func (a *App) approverDevices(st *store.Store, approvals *approval.Service, dire
 		Resolve:   approvals.Resolve,
 		View:      func(p *approval.Pending) any { return ctlapi.ApprovalView(p) },
 		Signer:    signer,
-		PublicURL: direct.PublicURL,
+		PublicURL: publicURL,
+		RouteKey:  routeKey,
 		Log:       a.log,
 	}
 	if key, err := devicecred.ApproverPushKey(); err != nil {
