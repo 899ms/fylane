@@ -556,3 +556,27 @@ func TestOpenModeNeedsConfirmationAndStillAsksForDeletesAndSensitivePaths(t *tes
 		}
 	}
 }
+
+// A hook on the decision wakes other surfaces — an approver device's inbox
+// re-reads Pending() when told. Told before the prompt had left the list, it
+// sealed and showed a decided prompt once more (headless-browser run,
+// 2026-09-19). The list is updated first, then anyone is told.
+func TestTheDecidedPromptIsGoneBeforeTheDecisionHookRuns(t *testing.T) {
+	svc, err := New(ModeSafe, DefaultBudgets(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := -1
+	svc.OnDecision = func(*Pending, bool, time.Duration) { seen = len(svc.Pending()) }
+	req := &txn.ApprovalRequest{ChangeSetID: "cs_hook", Operations: []txn.OpPreview{{Type: txn.OpUpdate, Path: "a"}}}
+	go svc.Approve(context.Background(), req)
+	for len(svc.Pending()) == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	if !svc.Resolve("cs_hook", true, "") {
+		t.Fatal("resolve")
+	}
+	if seen != 0 {
+		t.Fatalf("the hook saw %d pending prompts; the decided one must already be gone", seen)
+	}
+}

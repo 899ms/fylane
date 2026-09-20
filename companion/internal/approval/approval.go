@@ -340,18 +340,22 @@ func (s *Service) Resolve(changeSetID string, approved bool, reason string) bool
 	if !p.resolve(txn.Decision{Approved: approved, Reason: reason}) {
 		return false
 	}
-	if s.OnDecision != nil {
-		s.OnDecision(p, approved, time.Since(p.CreatedAt))
-	}
 	// The prompt is answered, so it leaves the pending list at once — a
 	// decision the user already made must never keep the gate shut. The
 	// waiter still holds this pointer and reads the decision from the
 	// closed channel; a retry that arrives later finds it in `decided`.
+	//
+	// It leaves before anyone is told: a hook that wakes another surface
+	// (an approver device's inbox) must find the list already without it,
+	// or that surface shows a decided prompt one more time.
 	s.mu.Lock()
 	delete(s.pending, changeSetID)
 	s.decided[changeSetID] = p
 	s.sweep()
 	s.mu.Unlock()
+	if s.OnDecision != nil {
+		s.OnDecision(p, approved, time.Since(p.CreatedAt))
+	}
 	return true
 }
 
