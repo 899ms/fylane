@@ -3820,7 +3820,6 @@ function memoryProps(source: MemorySource) {
     onError: () => {},
     onGotoLane: () => {},
     onGotoTasks: () => {},
-    onHelp: () => {},
   };
 }
 
@@ -4156,6 +4155,25 @@ describe("memory screen", () => {
         open: ["iCloud heartbeat?"],
       },
     ]);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("explains how the AI takes notes in a sheet, not a browser tab", async () => {
+    // The link used to open the README on GitHub (user report, 2026-09-19).
+    const { source } = memSource({ state: null, notes: [], live: 0, archived: 0 });
+    draw(<MemoryScreen {...memoryProps(source)} />);
+    await settle();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    click(buttons().find((b) => b.textContent === "How the AI takes notes"));
+    const sheet = host.querySelector('[role="dialog"]');
+    expect(sheet).not.toBeNull();
+    expect(sheet?.textContent).toContain("Carry on from last time.");
+    expect(sheet?.querySelectorAll(".fy-how-glyph").length).toBe(3);
+    act(() => {
+      sheet!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 

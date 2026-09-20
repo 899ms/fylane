@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { POLL_MS } from "../lib/poll";
+import { MemoryHowSheet } from "../components/MemoryHowSheet";
 import type {
   ChangeSet,
   MemoryDoc,
@@ -66,7 +67,6 @@ export interface MemoryProps {
   onError: (message: string) => void;
   onGotoLane: () => void;
   onGotoTasks: () => void;
-  onHelp: () => void;
 }
 
 type Filter = "live" | "archived";
@@ -81,12 +81,13 @@ export function MemoryScreen({
   onError,
   onGotoLane,
   onGotoTasks,
-  onHelp,
 }: MemoryProps) {
   const tr = useT();
   const { t } = tr;
   const wsID = workspace?.id ?? "";
   const [doc, setDoc] = useState<MemoryDoc | null>(null);
+  // The "how the AI takes notes" sheet, opened from the empty state.
+  const [how, setHow] = useState(false);
   // A step open for editing freezes the background read below.
   const [editingStep, setEditingStep] = useState(false);
   // "old" is a remote Core from before this page existed: its proxy answers
@@ -337,7 +338,7 @@ export function MemoryScreen({
           title={t("memory.emptyTitle")}
           body={t("memory.emptyBody")}
           link={t("memory.emptyHow")}
-          onLink={onHelp}
+          onLink={() => setHow(true)}
         />
       ) : (
         <>
@@ -397,6 +398,7 @@ export function MemoryScreen({
           onClose={() => setSheet(null)}
         />
       )}
+      {how && <MemoryHowSheet tr={tr} onClose={() => setHow(false)} />}
     </div>
   );
 }

@@ -1359,6 +1359,74 @@ a {
   color: var(--fy-brick);
 }
 
+/* The memory page's "how it works" sheet: the same face as the field sheet,
+   holding one small drawing and a few lines. */
+.fy-how {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 2px 0 4px;
+}
+.fy-how-cols {
+  display: grid;
+  grid-template-columns: repeat(3, 40px);
+  width: 120px;
+  font: 400 10.5px/1 var(--fy-sans);
+  letter-spacing: 0.06em;
+  color: var(--fy-faint);
+  text-align: center;
+}
+.fy-how-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 14px;
+  align-items: center;
+  font: 400 13px/1.5 var(--fy-sans);
+  color: var(--fy-ink2);
+}
+.fy-how-glyph {
+  display: block;
+  width: 120px;
+  height: 20px;
+}
+.fy-how-glyph line,
+.fy-how-glyph path {
+  stroke: var(--fy-rule2);
+  stroke-width: 1;
+  fill: none;
+}
+.fy-how-glyph .fy-how-arrow {
+  stroke: var(--fy-ink2);
+  stroke-width: 1.2;
+}
+.fy-how-glyph .fy-how-dot {
+  fill: var(--fy-sage);
+}
+.fy-how-glyph .fy-how-dot-off {
+  fill: var(--fy-rule2);
+}
+.fy-how-say {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fy-how-say li {
+  font: 400 13px/1.5 var(--fy-mono);
+  color: var(--fy-ink);
+}
+.fy-how-say li::before {
+  content: "›";
+  margin-right: 8px;
+  color: var(--fy-faint);
+}
+.fy-how-note {
+  margin: 0;
+  font: 400 12px/1.55 var(--fy-sans);
+  color: var(--fy-faint);
+}
 
 /* The diff of a pending write, inside its request. Colour is carried by the
    line's own sign, not by a background wash. */

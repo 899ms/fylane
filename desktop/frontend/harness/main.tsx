@@ -355,7 +355,6 @@ function Board() {
               onError={noop}
               onGotoLane={noop}
               onGotoTasks={noop}
-              onHelp={noop}
             />
           </Scroller>
         </>

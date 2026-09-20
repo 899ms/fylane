@@ -32,7 +32,6 @@ import {
   type PairClaim,
   type TaskInfo,
   memorySource,
-  openURL,
 } from "./lib/core";
 import { RemoteFolderSheet } from "./components/RemoteFolderSheet";
 import { AddMachineSheet } from "./components/AddMachineSheet";
@@ -85,9 +84,6 @@ const NAV: { key: Screen; label: Key }[] = [
   { key: "memory", label: "nav.memory" },
   { key: "settings", label: "nav.settings" },
 ];
-
-/** Where "how the AI takes notes" points: the README's memory section. */
-const MEMORY_HELP_URL = "https://github.com/leazoot/fylane#readme";
 
 export default function App() {
   const [lang, setLang] = useState<Lang>(storedLang);
@@ -492,7 +488,6 @@ function Window({ lang, onLang }: { lang: Lang; onLang(lang: Lang): void }) {
             onError={(message) => setError(`${t("shell.errMemory")}: ${message}`)}
             onGotoLane={() => setScreen("lane")}
             onGotoTasks={() => setScreen("tasks")}
-            onHelp={() => void openURL(MEMORY_HELP_URL)}
           />
         );
       case "settings":
