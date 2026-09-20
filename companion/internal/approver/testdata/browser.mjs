@@ -4,16 +4,24 @@
 // WebSocket and child_process are enough.
 //
 // usage: node browser.mjs <chrome> <pairing url>
+//
+// FYLANE_SCAN=<file.mjpeg> opens the page with no code and reads it through
+// Chrome's fake camera, which plays that file: the home-screen path.
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const [chrome, pairURL] = process.argv.slice(2);
+const scanFile = process.env.FYLANE_SCAN;
 const profile = mkdtempSync(join(tmpdir(), "fylane-approver-"));
+const camera = scanFile ? [
+  "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream",
+  `--use-file-for-fake-video-capture=${resolve(scanFile)}`,
+] : [];
 const proc = spawn(chrome, [
   "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
-  "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank",
+  "--no-first-run", "--no-default-browser-check", "--disable-gpu", ...camera, "about:blank",
 ]);
 const wsURL = await new Promise((resolve, reject) => {
   let err = "";
@@ -62,7 +70,15 @@ const until = async (expression, ms = 8000) => {
 
 const out = {};
 try {
-  await until(`document.getElementById("pair") && !document.getElementById("pair").hidden`);
+  if (scanFile) {
+    await until(`document.getElementById("nocode") && !document.getElementById("nocode").hidden`);
+    await evaluate(`document.getElementById("scan").click(); true`);
+    // The first frame can decode before this poll sees the camera view:
+    // either the camera view or the pairing form that follows it counts.
+    await until(`!document.getElementById("scan").hidden || !document.getElementById("pair").hidden`, 15000);
+    out.scanned = true;
+  }
+  await until(`document.getElementById("pair") && !document.getElementById("pair").hidden`, scanFile ? 20000 : 8000);
   await evaluate(`document.getElementById("name").value = "Pixel 9"; document.getElementById("pgo").click(); true`);
   if (process.env.FYLANE_PAIR_ONLY) {
     // Against a live Companion with nothing waiting: pairing alone is the check.
@@ -88,7 +104,7 @@ try {
 } catch (e) {
   if (!(e && e.done)) out.error = String(e);
   try { out.log = await evaluate(`JSON.stringify(window.__log || null) + " aerr=" + document.getElementById("aerr").textContent + " btn=" + document.getElementById("approve").textContent`); } catch {}
-  try { out.state = await evaluate(`["unsupported","nocode","pair","idle","prompt","gone"].filter(id => !document.getElementById(id).hidden).join(",") + " " + (document.getElementById("perr").textContent || "")`); } catch {}
+  try { out.state = await evaluate(`["unsupported","nocode","scan","pair","idle","prompt","gone"].filter(id => !document.getElementById(id).hidden).join(",") + " " + (document.getElementById("perr").textContent || "") + (document.getElementById("nerr").textContent || "") + (document.getElementById("cerr").textContent || "")`); } catch {}
 }
 console.log(JSON.stringify(out));
 ws.close();

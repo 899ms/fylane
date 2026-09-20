@@ -105,6 +105,9 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  color:var(--fy-ink);padding:0 14px;font:400 15px/1 var(--sans)}
 .field input:focus{outline:2px solid var(--fy-ink);outline-offset:1px}
 .err{margin:12px 0 0;font:400 12.5px/1.55 var(--sans);color:var(--fy-brick)}
+.cam{position:relative;margin-top:20px;border-radius:12px;overflow:hidden;background:var(--fy-ink);aspect-ratio:1/1}
+.cam video{display:block;width:100%;height:100%;object-fit:cover}
+.cam .aim{position:absolute;inset:18%;border:1.5px solid rgba(255,255,255,.75);border-radius:10px;pointer-events:none}
 .summary{margin-top:18px;padding-top:14px;border-top:1px solid var(--fy-rule2);display:grid;gap:8px}
 .summary div{display:flex;justify-content:space-between;gap:16px;font:400 12.5px/1.3 var(--sans)}
 .summary span:first-child{color:var(--fy-faint)}
@@ -136,11 +139,31 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    <p class="err" id="uwhy" hidden></p>
   </section>
 
-  <!-- Opened with no code and no pairing: nothing to do here yet. -->
+  <!-- Opened with no code and no pairing: the home-screen app lands here,
+       and it has no address bar to arrive through, so the code is read
+       with the camera or typed. -->
   <section id="nocode" hidden>
    <div class="tag" data-tone="faint"><i></i><span data-k="nTag">Not paired</span></div>
-   <h1 data-k="nTitle">Pair from the computer</h1>
+   <h1 data-k="nTitle">Scan the code on the computer</h1>
    <p class="lede" data-k="nLede">Settings → Approver devices → Pair a phone.</p>
+   <p class="err" id="nerr" role="alert" hidden></p>
+   <div class="actions">
+    <button type="button" class="primary" id="scan" data-k="nScan">Scan the code</button>
+    <div class="row" id="mrow"><button type="button" class="outline" id="manual" data-k="nManual">Enter it by hand</button></div>
+   </div>
+   <div id="mfield" hidden>
+    <div class="field"><label for="mcode" data-k="nCode">Pairing code or link</label><input id="mcode" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    <div class="actions"><button type="button" class="primary" id="mgo" data-k="nGo">Continue</button></div>
+   </div>
+  </section>
+
+  <!-- The camera, looking for the code the computer shows. -->
+  <section id="scan" hidden>
+   <div class="tag" data-pulse="1"><i></i><span data-k="cTag">Scanning</span></div>
+   <h1 data-k="cTitle">Point at the code on the screen</h1>
+   <div class="cam"><video id="cam" playsinline muted autoplay></video><div class="aim"></div></div>
+   <p class="err" id="cerr" role="alert" hidden></p>
+   <div class="actions"><div class="row"><button type="button" class="outline" id="cstop" data-k="cStop">Cancel</button></div></div>
   </section>
 
   <!-- A code arrived in the address: pair this device. -->
@@ -213,8 +236,12 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   en: {
    eyebrow:"Approver", uTag:"Cannot pair", uTitle:"Open this in another browser",
    uLede:"Needs Safari 17, Chrome 137 or Firefox 130 and later.",
-   nTag:"Not paired", nTitle:"Pair from the computer",
+   nTag:"Not paired", nTitle:"Scan the code on the computer",
    nLede:"Settings → Approver devices → Pair a phone.",
+   nScan:"Scan the code", nManual:"Enter it by hand", nCode:"Pairing code or link", nGo:"Continue",
+   nNoCamera:"No camera. Enter the code by hand.", nDenied:"Camera not allowed. Enter the code by hand.",
+   nOther:"That code belongs to another computer.", nBadInput:"Not a pairing code.",
+   cTag:"Scanning", cTitle:"Point at the code on the screen", cStop:"Cancel",
    pTag:"Pairing", pTitle:"Answer approvals from this phone",
    pLede:"Give this phone a name.",
    pName:"Device name", pGo:"Pair this device", pBusy:"Pairing…",
@@ -247,8 +274,12 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   zh: {
    eyebrow:"审批设备", uTag:"无法配对", uTitle:"请换个浏览器打开",
    uLede:"需要 Safari 17、Chrome 137 或 Firefox 130 及以上。",
-   nTag:"尚未配对", nTitle:"在电脑上发起配对",
+   nTag:"尚未配对", nTitle:"扫电脑上的二维码",
    nLede:"设置 → 审批设备 → 配对手机。",
+   nScan:"扫码配对", nManual:"手动输入", nCode:"配对码或链接", nGo:"继续",
+   nNoCamera:"打不开相机，可手动输入。", nDenied:"没有相机权限，可手动输入。",
+   nOther:"这个码属于另一台电脑。", nBadInput:"不是配对码。",
+   cTag:"扫描中", cTitle:"对准电脑屏幕上的二维码", cStop:"取消",
    pTag:"配对中", pTitle:"用这部手机回答审批",
    pLede:"给这部手机起个名字。",
    pName:"设备名称", pGo:"配对这台设备", pBusy:"配对中…",
@@ -410,7 +441,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  }
 
  // ── states ───────────────────────────────────────────────────────────
- var SECTIONS = ["unsupported", "nocode", "pair", "idle", "prompt", "gone"];
+ var SECTIONS = ["unsupported", "nocode", "scan", "pair", "idle", "prompt", "gone"];
  var state = "idle", dev = null, prompts = [], current = null, armed = false, detailsOpen = false, busy = false;
  function show(name) { state = name; SECTIONS.forEach(function (s) { $(s).hidden = s !== name; }); $("foot").hidden = !dev || name === "gone"; }
 
@@ -584,6 +615,78 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   });
  }
 
+ function beginPair(code) {
+  $("name").value = guessName(); $("perr").hidden = true; show("pair");
+  $("pgo").onclick = function () { pair(code); };
+ }
+
+ // ── reading the code without an address bar ───────────────────────────
+ // The home-screen app opens with no address, and Safari's storage is not
+ // its storage, so a pairing made in the browser never reaches it. The code
+ // is read here instead: from the camera, or typed. A link from another
+ // computer names an origin this page cannot claim against.
+ function codeFrom(text) {
+  text = (text || "").trim();
+  var m = /#([A-Za-z0-9_-]{8,})$/.exec(text);
+  if (m) {
+   var u = /^https?:\/\/[^\s#]+/.exec(text);
+   if (u) { try { if (new URL(u[0]).origin !== location.origin) return {other: true}; } catch (e) { return null; } }
+   return {code: m[1]};
+  }
+  if (/^[A-Za-z0-9_-]{8,}$/.test(text)) return {code: text};
+  return null;
+ }
+ var stream = null, scanTimer = 0;
+ // The decoder is a quarter megabyte the page loads only when a camera is
+ // about to be pointed at something.
+ function loadDecoder() {
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+  return new Promise(function (res, rej) {
+   var s = document.createElement("script"); s.src = "/approver/jsqr.js?v={{jsqr}}";
+   s.onload = function () { window.jsQR ? res(window.jsQR) : rej(new Error("decoder")); };
+   s.onerror = function () { rej(new Error("decoder")); };
+   document.head.appendChild(s);
+  });
+ }
+ function stopScan() {
+  clearTimeout(scanTimer);
+  if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+  $("cam").srcObject = null;
+ }
+ function scanFailed(msg) { stopScan(); show("nocode"); $("nerr").textContent = msg; $("nerr").hidden = false; }
+ function startScan() {
+  var d = T(); $("nerr").hidden = true; $("cerr").hidden = true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { scanFailed(d.nNoCamera); return; }
+  Promise.all([loadDecoder(), navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}, audio: false})]).then(function (r) {
+   var decode = r[0], v = $("cam");
+   stream = r[1]; v.srcObject = stream; show("scan");
+   var canvas = document.createElement("canvas"), ctx = canvas.getContext("2d", {willReadFrequently: true});
+   function tick() {
+    if (state !== "scan") return;
+    if (v.readyState >= 2 && v.videoWidth) {
+     var scale = Math.min(1, 640 / v.videoWidth);
+     canvas.width = Math.round(v.videoWidth * scale); canvas.height = Math.round(v.videoHeight * scale);
+     ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+     var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+     var hit = decode(img.data, img.width, img.height, {inversionAttempts: "dontInvert"});
+     var got = hit && hit.data ? codeFrom(hit.data) : null;
+     if (got && got.code) { stopScan(); beginPair(got.code); return; }
+     if (got && got.other) { $("cerr").textContent = d.nOther; $("cerr").hidden = false; }
+    }
+    scanTimer = setTimeout(tick, 120);
+   }
+   return v.play().then(tick);
+  }).catch(function (e) { scanFailed(e && e.name === "NotAllowedError" ? d.nDenied : d.nNoCamera); });
+ }
+ $("scan").onclick = startScan;
+ $("cstop").onclick = function () { stopScan(); show("nocode"); };
+ $("manual").onclick = function () { $("mrow").hidden = true; $("mfield").hidden = false; $("mcode").focus(); };
+ $("mgo").onclick = function () {
+  var got = codeFrom($("mcode").value);
+  if (!got || !got.code) { $("nerr").textContent = got && got.other ? T().nOther : T().nBadInput; $("nerr").hidden = false; return; }
+  $("nerr").hidden = true; beginPair(got.code);
+ };
+
  // ── boot ──────────────────────────────────────────────────────────────
  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/approver/sw.js", {scope: "/approver/"}).catch(function () {});
  var code = (location.hash || "").replace(/^#/, "");
@@ -591,11 +694,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   paint();
   if (!ok) { $("uwhy").textContent = unsupportedWhy; $("uwhy").hidden = !unsupportedWhy; show("unsupported"); return; }
   return loadDevice().then(function (stored) {
-   if (code) {
-    $("name").value = guessName(); show("pair");
-    $("pgo").onclick = function () { pair(code); };
-    return;
-   }
+   if (code) { beginPair(code); return; }
    if (!stored) { show("nocode"); return; }
    dev = stored;
    if (Date.parse(dev.expiresAt) < Date.now()) { ended("expired"); return; }

@@ -25,13 +25,21 @@ var manifest string
 //go:embed icon.png
 var icon []byte
 
-// iconTag versions the icon's address. The icon is cacheable for a day and
-// the tunnel's edge honours that, so a replaced icon must arrive under a new
-// address or a phone keeps installing the old one.
-var iconTag = func() string {
-	sum := sha256.Sum256(icon)
+// The QR decoder the camera view runs (jsQR 1.4.0, Apache-2.0, vendored
+// whole: the page must not load anything from a third-party host).
+//
+//go:embed third_party/jsQR.js
+var qrDecoder []byte
+
+// tagOf versions a file's address by its bytes. These files are cacheable
+// for a day and the tunnel's edge honours that, so a replaced file must
+// arrive under a new address or a phone keeps the old one.
+func tagOf(b []byte) string {
+	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:4])
-}()
+}
+
+var iconTag, decoderTag = tagOf(icon), tagOf(qrDecoder)
 
 // PageRoutes mounts the device page and its installable-app files. They are
 // public: the page grants nothing by itself, and every call it makes is
@@ -55,11 +63,17 @@ func (s *Service) PageRoutes(mux *http.ServeMux) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Write(icon)
 	})
+	mux.HandleFunc("GET /approver/jsqr.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(qrDecoder)
+	})
 }
 
 // handlePage serves the page under a policy that lets only its own inline
-// script and style run, keyed by a nonce minted per response. The page
-// never embeds a prompt: everything it shows it fetched and opened itself.
+// script and style run, keyed by a nonce minted per response, plus the
+// decoder served from this same origin. The page never embeds a prompt:
+// everything it shows it fetched and opened itself.
 func (s *Service) handlePage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/approver" && r.URL.Path != "/approver/" {
 		http.NotFound(w, r)
@@ -72,7 +86,7 @@ func (s *Service) handlePage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", strings.Join([]string{
 		"default-src 'none'",
-		"script-src 'nonce-" + nonce + "'",
+		"script-src 'self' 'nonce-" + nonce + "'",
 		"style-src 'nonce-" + nonce + "'",
 		"img-src 'self'",
 		"connect-src 'self'",
@@ -81,6 +95,6 @@ func (s *Service) handlePage(w http.ResponseWriter, r *http.Request) {
 		"base-uri 'none'",
 		"form-action 'none'",
 	}, "; "))
-	html := strings.ReplaceAll(pageHTML, "{{nonce}}", nonce)
-	w.Write([]byte(strings.ReplaceAll(html, "{{icon}}", iconTag)))
+	html := strings.NewReplacer("{{nonce}}", nonce, "{{icon}}", iconTag, "{{jsqr}}", decoderTag).Replace(pageHTML)
+	w.Write([]byte(html))
 }

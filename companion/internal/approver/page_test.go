@@ -40,4 +40,16 @@ func TestTheIconIsInstalledFromAnAddressThatChangesWithIt(t *testing.T) {
 	if body := get("/approver/icon.png?v=" + iconTag).Body.Bytes(); len(body) != len(icon) {
 		t.Errorf("icon served %d bytes of %d", len(body), len(icon))
 	}
+	// The decoder is fetched the same way, and only from here: the policy
+	// names this origin and nowhere else.
+	if !strings.Contains(page, "/approver/jsqr.js?v="+decoderTag) {
+		t.Errorf("page does not load the decoder under its tag %s", decoderTag)
+	}
+	if body := get("/approver/jsqr.js?v=" + decoderTag).Body.Bytes(); len(body) != len(qrDecoder) {
+		t.Errorf("decoder served %d bytes of %d", len(body), len(qrDecoder))
+	}
+	csp := get("/approver").Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self' 'nonce-") || strings.Contains(csp, "http") {
+		t.Errorf("policy must allow scripts from this origin and its nonce only: %s", csp)
+	}
 }
