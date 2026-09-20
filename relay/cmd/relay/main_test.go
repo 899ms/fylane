@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/leazoot/fylane/relay/internal/approverproxy"
 	"github.com/leazoot/fylane/shared/ratelimit"
 	"github.com/leazoot/fylane/shared/tunnel"
 )
@@ -157,5 +158,40 @@ func TestThePublishedRateLimitIsTheOneWeShip(t *testing.T) {
 	if ratePerSecond != 5 || rateBurst != 20 {
 		t.Errorf("rate ceiling = %d/s burst %d, published as 5/s burst 20",
 			ratePerSecond, rateBurst)
+	}
+}
+
+// TestApproverSurfaceIsServedHereAndForwardedFromHere: the page comes from
+// the relay, an API call without a routing key stops at the relay, and one
+// with a key reaches the forwarder (which, with nobody connected, says so).
+func TestApproverSurfaceIsServedHereAndForwardedFromHere(t *testing.T) {
+	ts, err := tunnel.NewServer("shared-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mountApprover(mux, ts, approverproxy.ByDeviceID)
+	get := func(method, path, auth string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader("{}"))
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := get(http.MethodGet, "/approver", ""); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") {
+		t.Errorf("page: %d, policy %q", rec.Code, rec.Header().Get("Content-Security-Policy"))
+	}
+	if rec := get(http.MethodGet, "/approver/manifest.webmanifest", ""); rec.Code != http.StatusOK {
+		t.Errorf("manifest: %d", rec.Code)
+	}
+	if rec := get(http.MethodGet, "/v1/approver/inbox", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("inbox without a credential: %d", rec.Code)
+	}
+	rec := get(http.MethodGet, "/v1/approver/inbox", "Fylane-Approver dev_a.apr_1:1:nonce0123456789ab:c2ln")
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "offline") {
+		t.Errorf("inbox with a credential did not reach the forwarder: %d %s", rec.Code, rec.Body)
 	}
 }

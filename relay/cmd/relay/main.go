@@ -15,7 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/leazoot/fylane/relay/internal/approverproxy"
 	"github.com/leazoot/fylane/relay/internal/pgstore"
+	"github.com/leazoot/fylane/shared/approverpage"
 	"github.com/leazoot/fylane/shared/authsrv"
 	"github.com/leazoot/fylane/shared/buildinfo"
 	"github.com/leazoot/fylane/shared/ratelimit"
@@ -157,6 +159,23 @@ func legacyMCP(ts *tunnel.Server, token string, limiter *ratelimit.Limiter) http
 	})
 }
 
+// mountApprover serves the approver devices surface (D43, V-T4): the page a
+// paired phone runs comes from here, and its API calls are forwarded into
+// the tunnel that route picks from the credential. Both are public and
+// throttled per IP like the OAuth surface. The relay holds nothing for
+// this — no table, no queue — and a prompt crosses it only as ciphertext
+// sealed to the phone by the Companion.
+func mountApprover(mux *http.ServeMux, ts *tunnel.Server, route approverproxy.Resolver) {
+	limiter := ratelimit.New(ratePerSecond, rateBurst)
+	pageMux := http.NewServeMux()
+	approverpage.Routes(pageMux)
+	page := withIPLimit(limiter, withAccessLog(pageMux))
+	mux.Handle("/approver", page)
+	mux.Handle("/approver/", page)
+	// The forwarder writes the access line for these itself.
+	mux.Handle("/v1/approver/", withIPLimit(limiter, approverproxy.Handler(ts, route)))
+}
+
 // isPostgresDSN distinguishes a PostgreSQL connection string from a SQLite
 // file path in FYLANE_RELAY_DB.
 func isPostgresDSN(dsn string) bool {
@@ -214,6 +233,7 @@ func serve(args []string) error {
 		guarded := legacyMCP(ts, legacyToken, ratelimit.New(ratePerSecond, rateBurst))
 		mux.Handle("/mcp", guarded)
 		mux.Handle("/mcp/", guarded)
+		mountApprover(mux, ts, approverproxy.ToLegacy)
 		log.Printf("running in legacy shared-token mode (FYLANE_TUNNEL_TOKEN)")
 	} else {
 		if *issuer == "" || !strings.HasPrefix(*issuer, "http") {
@@ -303,6 +323,7 @@ func serve(args []string) error {
 				cancel()
 			}
 		}))
+		mountApprover(mux, ts, approverproxy.ByDeviceID)
 	}
 	mux.HandleFunc("/tunnel", ts.HandleTunnel)
 	// Liveness for process supervisors and container health checks. It says
