@@ -1,6 +1,8 @@
 package approver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"strings"
 
@@ -23,6 +25,14 @@ var manifest string
 //go:embed icon.png
 var icon []byte
 
+// iconTag versions the icon's address. The icon is cacheable for a day and
+// the tunnel's edge honours that, so a replaced icon must arrive under a new
+// address or a phone keeps installing the old one.
+var iconTag = func() string {
+	sum := sha256.Sum256(icon)
+	return hex.EncodeToString(sum[:4])
+}()
+
 // PageRoutes mounts the device page and its installable-app files. They are
 // public: the page grants nothing by itself, and every call it makes is
 // signed by a key only a paired device holds.
@@ -38,7 +48,7 @@ func (s *Service) PageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /approver/manifest.webmanifest", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/manifest+json")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Write([]byte(manifest))
+		w.Write([]byte(strings.ReplaceAll(manifest, "{{icon}}", iconTag)))
 	})
 	mux.HandleFunc("GET /approver/icon.png", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -71,5 +81,6 @@ func (s *Service) handlePage(w http.ResponseWriter, r *http.Request) {
 		"base-uri 'none'",
 		"form-action 'none'",
 	}, "; "))
-	w.Write([]byte(strings.ReplaceAll(pageHTML, "{{nonce}}", nonce)))
+	html := strings.ReplaceAll(pageHTML, "{{nonce}}", nonce)
+	w.Write([]byte(strings.ReplaceAll(html, "{{icon}}", iconTag)))
 }
