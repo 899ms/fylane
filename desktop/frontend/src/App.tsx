@@ -282,8 +282,12 @@ function Window({ lang, onLang }: { lang: Lang; onLang(lang: Lang): void }) {
     [act],
   );
 
+  // Keyed on `selected`, not `machineID`: the rail already falls back to
+  // this computer's folders when the chosen machine is not in the list, and
+  // the folder sheet only renders for a machine that is. Keying on the id
+  // alone opened a sheet that could not draw, so the click did nothing.
   const onChooseWorkspace = useCallback(() => {
-    if (machineID) {
+    if (selected) {
       setSheet("folder");
       return Promise.resolve(null);
     }
@@ -291,7 +295,7 @@ function Window({ lang, onLang }: { lang: Lang; onLang(lang: Lang): void }) {
       async () => void (await addWorkspace()),
       t("shell.errAddFolder"),
     );
-  }, [act, machineID]);
+  }, [act, selected]);
   const onTogglePause = useCallback(() => {
     if (!ws) return;
     const core = coreOf(machineID);
