@@ -109,6 +109,9 @@ try {
   await until(`document.getElementById("ipush").textContent !== ""`, 10000);
   out.push = await evaluate(`document.getElementById("ipush").textContent`);
   out.pushButton = await evaluate(`!document.getElementById("pushrow").hidden && document.getElementById("pushon").offsetParent !== null`);
+  // An outline button outside a row collapses to its text height in the
+  // column layout; the rendered height says whether it got its padding.
+  out.pushButtonHeight = await evaluate(`document.getElementById("pushon").getBoundingClientRect().height`);
   out.ok = true;
 } catch (e) {
   if (!(e && e.done)) out.error = String(e);

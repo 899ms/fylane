@@ -45,18 +45,19 @@ func TestAPhoneCanPairSeeADiffAndApproveInARealBrowser(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	var out struct {
-		OK                 bool   `json:"ok"`
-		Error              string `json:"error"`
-		State              string `json:"state"`
-		Title              string `json:"title"`
-		Command            string `json:"command"`
-		Changes            string `json:"changes"`
-		DetailHiddenBefore bool   `json:"detailHiddenBefore"`
-		DetailHiddenAfter  bool   `json:"detailHiddenAfter"`
-		ApproveLabel       string `json:"approveLabel"`
-		Device             string `json:"device"`
-		Push               string `json:"push"`
-		PushButton         bool   `json:"pushButton"`
+		OK                 bool    `json:"ok"`
+		Error              string  `json:"error"`
+		State              string  `json:"state"`
+		Title              string  `json:"title"`
+		Command            string  `json:"command"`
+		Changes            string  `json:"changes"`
+		DetailHiddenBefore bool    `json:"detailHiddenBefore"`
+		DetailHiddenAfter  bool    `json:"detailHiddenAfter"`
+		ApproveLabel       string  `json:"approveLabel"`
+		Device             string  `json:"device"`
+		Push               string  `json:"push"`
+		PushButton         bool    `json:"pushButton"`
+		PushButtonHeight   float64 `json:"pushButtonHeight"`
 	}
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &out); err != nil {
 		t.Fatalf("browser output: %v\n%s", err, raw)
@@ -75,6 +76,9 @@ func TestAPhoneCanPairSeeADiffAndApproveInARealBrowser(t *testing.T) {
 	}
 	if out.Push != "Off" || !out.PushButton {
 		t.Errorf("the notifications row must say Off and offer the button (said %q, button %v)", out.Push, out.PushButton)
+	}
+	if out.PushButtonHeight < 42 {
+		t.Errorf("the button rendered %.0fpx tall: it lost its padding", out.PushButtonHeight)
 	}
 	select {
 	case d := <-decided:
