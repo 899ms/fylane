@@ -64,6 +64,14 @@ const out = {};
 try {
   await until(`document.getElementById("pair") && !document.getElementById("pair").hidden`);
   await evaluate(`document.getElementById("name").value = "Pixel 9"; document.getElementById("pgo").click(); true`);
+  if (process.env.FYLANE_PAIR_ONLY) {
+    // Against a live Companion with nothing waiting: pairing alone is the check.
+    await until(`!document.getElementById("idle").hidden`, 15000);
+    out.device = await evaluate(`document.getElementById("iname").textContent`);
+    out.until = await evaluate(`document.getElementById("iuntil").textContent`);
+    out.ok = true;
+    throw { done: true };
+  }
   await until(`!document.getElementById("prompt").hidden`, 15000);
   out.title = await evaluate(`document.getElementById("ptitle").textContent`);
   out.command = await evaluate(`document.getElementById("pcmd").textContent`);
@@ -78,7 +86,7 @@ try {
   out.device = await evaluate(`document.getElementById("iname").textContent`);
   out.ok = true;
 } catch (e) {
-  out.error = String(e);
+  if (!(e && e.done)) out.error = String(e);
   try { out.log = await evaluate(`JSON.stringify(window.__log || null) + " aerr=" + document.getElementById("aerr").textContent + " btn=" + document.getElementById("approve").textContent`); } catch {}
   try { out.state = await evaluate(`["unsupported","nocode","pair","idle","prompt","gone"].filter(id => !document.getElementById(id).hidden).join(",") + " " + (document.getElementById("perr").textContent || "")`); } catch {}
 }
