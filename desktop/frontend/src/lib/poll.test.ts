@@ -200,6 +200,7 @@ describe("pollCore", () => {
     selectWorkspace: async () => {},
     pauseWorkspace: async () => {},
     resumeWorkspace: async () => {},
+    revokeWorkspace: async () => {},
     cancelTask: async () => [],
     acceptChangeSet: async () => CHANGE_SET,
     rollbackChangeSet: async () => ({ status: "rolled_back" }),

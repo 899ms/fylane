@@ -60,6 +60,8 @@ export interface LaneProps {
   onReject: (changeSetID: string) => void;
   onSelectWorkspace: (id: string) => void;
   onChooseWorkspace: () => void;
+  /** Withdraws a folder from the AI; absent where the rail cannot offer it. */
+  onRevokeWorkspace?: (id: string) => void;
   onOpenDir: (path: string) => void;
   onStopTask: (taskID: string) => void;
   onTogglePause: () => void;
@@ -752,6 +754,12 @@ function Rail(props: LaneProps & { tr: Translator }) {
   const { t } = tr;
   const [menu, setMenu] = useState(false);
   const menuBox = useDismiss(menu, setMenu);
+  // Which folder's withdraw word is asking "are you sure"; cleared when the
+  // menu closes, so a half-asked question never survives out of sight.
+  const [asking, setAsking] = useState<string | null>(null);
+  useEffect(() => {
+    if (!menu) setAsking(null);
+  }, [menu]);
   const ws = snapshot.workspace;
   const paused = ws?.status === "paused";
   const machine = selectedMachine(props);
@@ -871,28 +879,49 @@ function Rail(props: LaneProps & { tr: Translator }) {
                 {t("laneV2.grantedFolders")}
               </div>
               {workspaces.map((w) => (
-                <button
-                  key={w.id}
-                  type="button"
-                  className="fy-wsitem"
-                  data-current={w.id === ws?.id}
-                  onClick={() => {
-                    setMenu(false);
-                    props.onSelectWorkspace(w.id);
-                  }}
-                >
-                  <span
-                    className="fy-dot fy-dot-sm"
-                    style={{
-                      background: "var(--fy-sage)",
-                      opacity: w.id === ws?.id ? 1 : 0.25,
+                <div key={w.id} className="fy-wsrow">
+                  <button
+                    type="button"
+                    className="fy-wsitem"
+                    data-current={w.id === ws?.id}
+                    onClick={() => {
+                      setMenu(false);
+                      props.onSelectWorkspace(w.id);
                     }}
-                  />
-                  <span className="fy-wsitem-name">{w.name}</span>
-                  <span className="fy-wsitem-path" title={w.root_path}>
-                    {shortPath(w.root_path)}
-                  </span>
-                </button>
+                  >
+                    <span
+                      className="fy-dot fy-dot-sm"
+                      style={{
+                        background: "var(--fy-sage)",
+                        opacity: w.id === ws?.id ? 1 : 0.25,
+                      }}
+                    />
+                    <span className="fy-wsitem-name">{w.name}</span>
+                    <span className="fy-wsitem-path" title={w.root_path}>
+                      {shortPath(w.root_path)}
+                    </span>
+                  </button>
+                  {props.onRevokeWorkspace && (
+                    <button
+                      type="button"
+                      className="fy-wsitem-act"
+                      data-ask={asking === w.id}
+                      aria-label={t("laneV2.revokeLabel", { name: w.name })}
+                      onBlur={() => setAsking((a) => (a === w.id ? null : a))}
+                      onClick={() => {
+                        if (asking !== w.id) {
+                          setAsking(w.id);
+                          return;
+                        }
+                        setAsking(null);
+                        setMenu(false);
+                        props.onRevokeWorkspace!(w.id);
+                      }}
+                    >
+                      {asking === w.id ? t("laneV2.revokeAsk") : t("laneV2.revoke")}
+                    </button>
+                  )}
+                </div>
               ))}
               <button
                 type="button"

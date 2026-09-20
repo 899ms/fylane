@@ -28,6 +28,7 @@ import {
   ResolveApproval,
   ResolvePairClaim,
   ResumeWorkspace,
+  RevokeWorkspace,
   OpenURL,
   OpenWorkspaceDir,
   RevokeCommandGrant,
@@ -331,6 +332,11 @@ export async function pauseWorkspace(id: string): Promise<void> {
 
 export async function resumeWorkspace(id: string): Promise<void> {
   await ResumeWorkspace(id);
+}
+
+/** Withdraws a folder from the AI. The records stay; nothing on disk moves. */
+export async function revokeWorkspace(id: string): Promise<void> {
+  await RevokeWorkspace(id);
 }
 
 /** How a provider is authorized. "browser" runs the vendor's own sign-in and
@@ -1108,6 +1114,7 @@ export interface RemoteCore {
   selectWorkspace(id: string): Promise<void>;
   pauseWorkspace(id: string): Promise<void>;
   resumeWorkspace(id: string): Promise<void>;
+  revokeWorkspace(id: string): Promise<void>;
   cancelTask(taskID: string): Promise<TaskInfo[]>;
   acceptChangeSet(workspaceID: string, changeSetID: string): Promise<ChangeSet>;
   rollbackChangeSet(
@@ -1165,6 +1172,9 @@ export function remoteCore(machineID: string): RemoteCore {
     },
     resumeWorkspace: async (id) => {
       await call("POST", "/v1/workspaces/resume", { id });
+    },
+    revokeWorkspace: async (id) => {
+      await call("POST", "/v1/workspaces/revoke", { id });
     },
     cancelTask: async (taskID) =>
       (await call("POST", "/v1/tasks/cancel", { task_id: taskID })).tasks ?? [],

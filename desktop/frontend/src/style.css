@@ -1322,6 +1322,43 @@ a {
 .fy-wsitem:hover {
   background: var(--fy-surf2);
 }
+/* A folder row with a withdraw word beside it. The word is there on hover
+   and on focus — a keyboard has to be able to reach it — and asks once more
+   before it does anything, the way removing a machine does. */
+.fy-wsrow {
+  display: flex;
+  align-items: center;
+}
+.fy-wsrow > .fy-wsitem {
+  flex: 1;
+  min-width: 0;
+}
+.fy-wsitem-act {
+  flex: none;
+  border: 0;
+  background: transparent;
+  padding: 0 8px;
+  font: 400 11px/1 var(--fy-sans);
+  color: var(--fy-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.14s ease-out,
+    color 0.14s ease-out;
+}
+.fy-wsrow:hover .fy-wsitem-act,
+.fy-wsrow:focus-within .fy-wsitem-act,
+.fy-wsitem-act[data-ask="true"] {
+  opacity: 1;
+}
+.fy-wsitem-act:hover,
+.fy-wsitem-act:focus-visible {
+  color: var(--fy-ink);
+}
+.fy-wsitem-act[data-ask="true"] {
+  color: var(--fy-brick);
+}
+
 
 /* The diff of a pending write, inside its request. Colour is carried by the
    line's own sign, not by a background wash. */

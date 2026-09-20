@@ -22,6 +22,7 @@ import {
   resolveApproval,
   resolvePairClaim,
   resumeWorkspace,
+  revokeWorkspace,
   savePrefs,
   rollbackChangeSet,
   selectMachine,
@@ -259,6 +260,7 @@ function Window({ lang, onLang }: { lang: Lang; onLang(lang: Lang): void }) {
           selectWorkspace,
           pauseWorkspace,
           resumeWorkspace,
+          revokeWorkspace,
           cancelTask,
           acceptChangeSet,
           rollbackChangeSet,
@@ -417,6 +419,12 @@ function Window({ lang, onLang }: { lang: Lang; onLang(lang: Lang): void }) {
               )
             }
             onChooseWorkspace={() => void onChooseWorkspace()}
+            onRevokeWorkspace={(id) =>
+              void act(
+                () => coreOf(machineID).revokeWorkspace(id),
+                t("shell.errRevoke"),
+              )
+            }
             onOpenDir={(path) =>
               void act(() => openWorkspaceDir(path), t("shell.errOpenDir"))
             }

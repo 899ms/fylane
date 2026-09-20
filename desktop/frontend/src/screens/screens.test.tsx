@@ -376,6 +376,54 @@ describe("a rail dropdown", () => {
   });
 });
 
+describe("withdrawing a folder from the dropdown", () => {
+  // The Core could revoke a workspace all along; nothing on the desktop
+  // offered it (user report, 2026-09-19). The word sits beside the row and
+  // asks once more before acting, the way removing a machine does.
+  const open = (onRevoke?: (id: string) => void) => {
+    draw(
+      <LaneScreen
+        {...laneProps}
+        snapshot={snap()}
+        tasks={[]}
+        onRevokeWorkspace={onRevoke}
+      />,
+    );
+    click(buttons().find((b) => b.hasAttribute("aria-expanded")));
+    return () =>
+      host.querySelector<HTMLButtonElement>(".fy-wsitem-act") ?? undefined;
+  };
+
+  it("asks before it withdraws, and only the second press acts", () => {
+    const revoked: string[] = [];
+    const word = open((id) => revoked.push(id));
+    expect(word()?.textContent).toBe("Withdraw");
+    click(word());
+    expect(revoked).toEqual([]);
+    expect(word()?.textContent).toBe("Withdraw?");
+    expect(word()?.getAttribute("data-ask")).toBe("true");
+    click(word());
+    expect(revoked).toEqual([WS.id]);
+  });
+
+  it("forgets a half-asked question when the menu closes", () => {
+    const revoked: string[] = [];
+    const word = open((id) => revoked.push(id));
+    click(word());
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    click(buttons().find((b) => b.hasAttribute("aria-expanded")));
+    expect(word()?.textContent).toBe("Withdraw");
+    expect(revoked).toEqual([]);
+  });
+
+  it("offers nothing where the rail cannot withdraw", () => {
+    const word = open(undefined);
+    expect(word()).toBeUndefined();
+  });
+});
+
 describe("the connected-AI rail", () => {
   // Both states used to be filled dots a few percent apart in lightness — the
   // same dot to anyone not comparing them side by side (user report,
@@ -3508,6 +3556,7 @@ describe("folders on other machines on the settings page", () => {
       selectWorkspace: refuse,
       pauseWorkspace: refuse,
       resumeWorkspace: refuse,
+      revokeWorkspace: refuse,
       cancelTask: refuse,
       acceptChangeSet: refuse,
       rollbackChangeSet: refuse,

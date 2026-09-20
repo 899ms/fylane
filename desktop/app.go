@@ -612,6 +612,12 @@ func (a *App) PauseWorkspace(id string) (string, error) {
 	return a.call("POST", "/v1/workspaces/pause", map[string]any{"id": id})
 }
 
+// RevokeWorkspace withdraws the folder: the AI stops seeing it, the records
+// about it stay, and nothing on disk is touched.
+func (a *App) RevokeWorkspace(id string) (string, error) {
+	return a.call("POST", "/v1/workspaces/revoke", map[string]any{"id": id})
+}
+
 // SetWorkspaceNetwork records whether the programs started for one workspace
 // may reach the network. It answers with the whole workspace list, because the
 // effective answer is not the setting: on a machine that cannot deny anything

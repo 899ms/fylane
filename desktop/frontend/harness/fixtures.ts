@@ -442,6 +442,7 @@ export const SETTINGS_DEPS: SettingsDeps = {
       selectWorkspace: refuse,
       pauseWorkspace: refuse,
       resumeWorkspace: refuse,
+      revokeWorkspace: refuse,
       cancelTask: refuse,
       acceptChangeSet: refuse,
       rollbackChangeSet: refuse,
