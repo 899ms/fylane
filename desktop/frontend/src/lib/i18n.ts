@@ -424,8 +424,8 @@ export const DICT = {
   "set.openConfirmYes": { en: "I understand, turn it on", zh: "我明白,启用" },
   "set.openWarning": { en: "Ordinary commands run without asking", zh: "普通命令正在无询问执行" },
   "set.openWarningBody": {
-    en: "High-risk commands and anything that reads this machine still ask, and everything is still recorded on the tasks page.",
-    zh: "高风险命令、以及读取这台机器的命令仍会询问,所有执行仍记录在任务页。",
+    en: "Anything that reads this machine still asks. High-risk commands do not on this rung. Everything is still recorded on the tasks page.",
+    zh: "读取这台机器的命令仍会询问;高风险命令在这一档不再询问。所有执行仍记录在任务页。",
   },
   "set.risky": { en: "High-risk commands", zh: "高风险命令" },
   "set.riskyNote": {
