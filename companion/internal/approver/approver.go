@@ -353,7 +353,31 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/approver/answer", s.handleAnswer)
 	mux.HandleFunc("GET /v1/approver/push", s.handlePushInfo)
 	mux.HandleFunc("POST /v1/approver/push", s.handlePushSet)
+	mux.HandleFunc("POST /v1/approver/forget", s.handleForget)
 	return mux
+}
+
+// handleForget lets a device end its own pairing: the phone's "forget this
+// pairing" reaches the computer's list too, instead of leaving a row that
+// nothing will ever answer from. Only the device itself can do it — the
+// request is signed like any other — and it revokes exactly one pairing.
+func (s *Service) handleForget(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_body")
+		return
+	}
+	dev, err := s.authenticate(r.Context(), r, body)
+	if err != nil {
+		writeAuthError(w, err)
+		return
+	}
+	if err := s.Revoke(r.Context(), dev.ID); err != nil {
+		s.opts.Log.Warn("forgetting a pairing", "device", dev.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "store_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"forgotten": true})
 }
 
 func (s *Service) handleClaim(w http.ResponseWriter, r *http.Request) {

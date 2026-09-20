@@ -2,7 +2,7 @@
   "name": "Fylane Approver",
   "short_name": "Fylane",
   "start_url": "/approver",
-  "scope": "/approver/",
+  "scope": "/approver",
   "display": "standalone",
   "background_color": "#F4F1E9",
   "theme_color": "#EFEBE1",

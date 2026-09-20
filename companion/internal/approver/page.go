@@ -52,7 +52,10 @@ func (s *Service) PageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /approver/sw.js", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Service-Worker-Allowed", "/approver/")
+		// The page lives at /approver, without a trailing slash, and the
+		// worker must control it: a scope of /approver/ would not, and a
+		// page outside its worker's scope never sees it become ready.
+		w.Header().Set("Service-Worker-Allowed", "/approver")
 		w.Write([]byte(serviceWorker))
 	})
 	mux.HandleFunc("GET /approver/manifest.webmanifest", func(w http.ResponseWriter, _ *http.Request) {

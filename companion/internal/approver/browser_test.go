@@ -55,6 +55,8 @@ func TestAPhoneCanPairSeeADiffAndApproveInARealBrowser(t *testing.T) {
 		DetailHiddenAfter  bool   `json:"detailHiddenAfter"`
 		ApproveLabel       string `json:"approveLabel"`
 		Device             string `json:"device"`
+		Push               string `json:"push"`
+		PushButton         bool   `json:"pushButton"`
 	}
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &out); err != nil {
 		t.Fatalf("browser output: %v\n%s", err, raw)
@@ -70,6 +72,9 @@ func TestAPhoneCanPairSeeADiffAndApproveInARealBrowser(t *testing.T) {
 	}
 	if !out.DetailHiddenBefore || out.DetailHiddenAfter {
 		t.Errorf("details must open on the press and not before (hidden before %v, after %v)", out.DetailHiddenBefore, out.DetailHiddenAfter)
+	}
+	if out.Push != "Off" || !out.PushButton {
+		t.Errorf("the notifications row must say Off and offer the button (said %q, button %v)", out.Push, out.PushButton)
 	}
 	select {
 	case d := <-decided:

@@ -58,6 +58,19 @@ func TestTheIconIsInstalledFromAnAddressThatChangesWithIt(t *testing.T) {
 		}
 		seen[m[1]] = true
 	}
+	// The worker must control the page at /approver itself: registered
+	// with that scope, and allowed it by the header on its script. With a
+	// scope of /approver/ the page is outside it and never sees the worker
+	// ready, which is how the notifications row once stayed blank.
+	if !strings.Contains(page, `{scope: "/approver"}`) {
+		t.Error("the page must register its worker with scope /approver")
+	}
+	if allowed := get("/approver/sw.js").Header().Get("Service-Worker-Allowed"); allowed != "/approver" {
+		t.Errorf("Service-Worker-Allowed is %q, want /approver", allowed)
+	}
+	if !strings.Contains(manifest, `"scope": "/approver"`) {
+		t.Error("the manifest scope must match")
+	}
 	csp := get("/approver").Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "script-src 'self' 'nonce-") || strings.Contains(csp, "http") {
 		t.Errorf("policy must allow scripts from this origin and its nonce only: %s", csp)

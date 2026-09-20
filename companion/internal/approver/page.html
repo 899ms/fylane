@@ -569,7 +569,19 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   $("gtag").textContent = expired ? d.gExpired : d.gRevoked; $("gtitle").textContent = expired ? d.gExpiredTitle : d.gRevokedTitle;
   polling = false; show("gone");
  }
- function forget() { saveDevice(null).then(function () { dev = null; polling = false; location.hash = ""; location.reload(); }); }
+ // Forgetting tells the computer too, so the device leaves its list rather
+ // than lingering there as one more "iPhone". Best effort: the keys are
+ // discarded either way, and a pairing already withdrawn answers 401.
+ function forgetRemote(d) {
+  var stop = new Promise(function (res) { setTimeout(res, 3000); });
+  return Promise.race([signed(d, "POST", "/v1/approver/forget", "{}"), stop]).catch(function () {});
+ }
+ function forget() {
+  polling = false;
+  var d = dev;
+  (d ? forgetRemote(d) : Promise.resolve()).then(function () { return saveDevice(null); })
+   .then(function () { dev = null; location.hash = ""; location.reload(); });
+ }
  $("gclear").onclick = forget; $("forget").onclick = forget;
 
  // ── the inbox: one long poll after another ────────────────────────────
@@ -601,6 +613,12 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  // says so instead of offering a button.
  var pushKey = null, pushEnabled = false;
  function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
+ // The worker this page registered, once active — or a refusal after a
+ // while, so the row never stays blank if the worker failed to install.
+ function workerReady() {
+  return Promise.race([navigator.serviceWorker.ready,
+   new Promise(function (_, rej) { setTimeout(function () { rej(new Error("worker")); }, 8000); })]);
+ }
  function paintPush(label) {
   var d = T();
   $("ipush").textContent = label || (pushEnabled ? d.pushOn : d.pushOff);
@@ -619,7 +637,7 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
   signed(dev, "GET", "/v1/approver/push", null).then(function (resp) { return resp.ok ? resp.json() : null; }).then(function (info) {
    if (!info || !info.available) { paintPush(d.pushUnavailable); return; }
    pushKey = info.key; pushEnabled = !!info.enabled;
-   return navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+   return workerReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
     // A subscription the browser still holds but the computer forgot is
     // handed over again; one the computer has but the browser lost is not
     // a subscription any more.
@@ -627,14 +645,14 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
     if (!sub) pushEnabled = false;
     paintPush();
    });
-  }).catch(function () { paintPush(); });
+  }).catch(function () { paintPush(d.pushUnavailable); });
  }
  function enablePush() {
   var d = T(), btn = $("pushon");
   btn.disabled = true; $("pusherr").hidden = true;
   Notification.requestPermission().then(function (perm) {
    if (perm !== "granted") throw new Error("denied");
-   return navigator.serviceWorker.ready;
+   return workerReady();
   }).then(function (reg) {
    return reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: unb64u(pushKey)});
   }).then(registerPush).catch(function (e) {
@@ -663,7 +681,10 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
    }).then(function (res) {
     dev = {id: res.device_id, name: $("name").value.trim() || guessName(), signKey: k.signKey, boxKey: k.boxKey,
      boxPub: k.boxPub, corePub: unb64u(res.core_sign_pub), expiresAt: res.expires_at};
-    return saveDevice(dev);
+    // Pairing again from a browser that was already paired replaces that
+    // pairing: the old one is withdrawn so the computer lists one phone.
+    var old = previous; previous = null;
+    return saveDevice(dev).then(function () { if (old && old.id !== dev.id) return forgetRemote(old); });
    });
   }).then(function () { history.replaceState(null, "", location.pathname); start(); }, function (err) {
    go.disabled = false; go.textContent = d.pGo;
@@ -744,13 +765,13 @@ h1{margin:12px 0 0;font:400 27px/1.18 var(--serif);letter-spacing:-.012em;color:
  };
 
  // ── boot ──────────────────────────────────────────────────────────────
- if ("serviceWorker" in navigator) navigator.serviceWorker.register("/approver/sw.js", {scope: "/approver/"}).catch(function () {});
- var code = (location.hash || "").replace(/^#/, "");
+ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/approver/sw.js", {scope: "/approver"}).catch(function () {});
+ var code = (location.hash || "").replace(/^#/, ""), previous = null;
  supported().then(function (ok) {
   paint();
   if (!ok) { $("uwhy").textContent = unsupportedWhy; $("uwhy").hidden = !unsupportedWhy; show("unsupported"); return; }
   return loadDevice().then(function (stored) {
-   if (code) { beginPair(code); return; }
+   if (code) { previous = stored; beginPair(code); return; }
    if (!stored) { show("nocode"); return; }
    dev = stored;
    if (Date.parse(dev.expiresAt) < Date.now()) { ended("expired"); return; }

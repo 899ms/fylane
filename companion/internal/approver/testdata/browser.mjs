@@ -103,6 +103,12 @@ try {
   await evaluate(`document.getElementById("approve").click(); true`);
   await until(`!document.getElementById("idle").hidden`, 10000);
   out.device = await evaluate(`document.getElementById("iname").textContent`);
+  // The notifications row fills in once the worker is ready and the
+  // computer answered: it must not stay blank, and with push available and
+  // nothing subscribed the button is offered.
+  await until(`document.getElementById("ipush").textContent !== ""`, 10000);
+  out.push = await evaluate(`document.getElementById("ipush").textContent`);
+  out.pushButton = await evaluate(`!document.getElementById("pushrow").hidden && document.getElementById("pushon").offsetParent !== null`);
   out.ok = true;
 } catch (e) {
   if (!(e && e.done)) out.error = String(e);
